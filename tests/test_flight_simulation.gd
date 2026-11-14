@@ -8,6 +8,8 @@ const TEST_TANK_ID := "flight_test_tank"
 const TEST_ALTIMETER_ID := "flight_test_altimeter"
 const TEST_RADAR_ID := "flight_test_radar"
 const TEST_CAMERA_ID := "flight_test_camera"
+const TEST_UNFIT_CAMERA_ID := "flight_test_unfit_camera"
+const TEST_SMALL_TANK_ID := "flight_test_small_tank"
 const TEST_DROPOUT_ID := "flight_test_dropout"
 
 
@@ -21,11 +23,14 @@ func run_tests(report: TestReport) -> void:
 	_check_burns(report)
 	_check_terminal_reasons(report)
 	_check_terminal_tick_precedence(report)
+	_check_low_fuel_alarm(report)
+	_check_science_fit(report)
+	_check_shared_orbit_radii(report)
 	GameState.mission = selected_mission
 	GameState.science_mission_id = selected_science_id
 	for part_id in [
 		TEST_ENGINE_ID, TEST_LIQUID_ENGINE_ID, TEST_TANK_ID, TEST_ALTIMETER_ID,
-		TEST_RADAR_ID, TEST_CAMERA_ID, TEST_DROPOUT_ID,
+		TEST_RADAR_ID, TEST_CAMERA_ID, TEST_DROPOUT_ID, TEST_UNFIT_CAMERA_ID, TEST_SMALL_TANK_ID,
 	]:
 		GameData.parts_by_id.erase(part_id)
 
@@ -211,6 +216,61 @@ func _check_terminal_reasons(report: TestReport) -> void:
 		flight.free()
 
 
+## The low-fuel alarm compares the propellant on board with the full capacity
+## of the stages still attached, so a small upper stage is not "low" after the
+## big lower stage has been dropped.
+func _check_low_fuel_alarm(report: TestReport) -> void:
+	var design := RocketDesign.new()
+	var lower_stage: Stage = design.add_stage(TEST_LIQUID_ENGINE_ID, TEST_TANK_ID)
+	var upper_stage: Stage = design.add_stage(TEST_LIQUID_ENGINE_ID, TEST_SMALL_TANK_ID)
+	var flight := _start_flight_with_design(design, 200.0)
+	report.check(not _has_low_fuel_alarm(flight), "no low-fuel alarm with every tank full")
+	flight.vehicle_state.is_jettisoned_by_stage[lower_stage.stage_id] = true
+	report.check(not _has_low_fuel_alarm(flight), "no low-fuel alarm after the big lower stage is dropped")
+	flight.vehicle_state.propellant_kilograms_by_stage[upper_stage.stage_id] = 11.0
+	report.check(not _has_low_fuel_alarm(flight), "no low-fuel alarm above 10 percent of the attached capacity")
+	flight.vehicle_state.propellant_kilograms_by_stage[upper_stage.stage_id] = 10.0
+	report.check(_has_low_fuel_alarm(flight), "low-fuel alarm at 10 percent of the attached capacity")
+	flight.vehicle_state.is_jettisoned_by_stage[upper_stage.stage_id] = true
+	report.check(not _has_low_fuel_alarm(flight), "no low-fuel alarm when no stage is attached")
+	flight.free()
+
+
+## Only science instruments rated above 0 for the chosen science mission
+## collect data.
+func _check_science_fit(report: TestReport) -> void:
+	var flight := _start_flight([TEST_CAMERA_ID, TEST_UNFIT_CAMERA_ID])
+	flight.advance_simulation(100.0)
+	report.check_close(flight._create_telemetry_frame().data_generated_megabits, 200.0, 0.0001,
+			"an instrument with rating 0 for the chosen science mission generates no data")
+	flight.free()
+
+
+## Escape and impact distances come from OrbitModel, so a change there reaches
+## the flight.
+func _check_shared_orbit_radii(report: TestReport) -> void:
+	var flight := _start_flight()
+	var body: Dictionary = GameData.body("earth")
+	flight._coast_segment.elements.is_open = true
+	var escape_radius_meters := OrbitModel.escape_radius_meters(body)
+	var at_escape_radius := OrbitState.create(escape_radius_meters, 0.0, 0.0, 1.0)
+	var inside_escape_radius := OrbitState.create(0.99 * escape_radius_meters, 0.0, 0.0, 1.0)
+	report.check(flight._has_escaped(at_escape_radius), "escape begins at OrbitModel.escape_radius_meters")
+	report.check(not flight._has_escaped(inside_escape_radius), "no escape inside OrbitModel.escape_radius_meters")
+
+	var circular_elements := Kepler.elements_from_state(
+			body["gravitational_parameter_cubic_meters_per_second_squared"], flight.craft_state)
+	report.check(flight._is_stable_orbit(circular_elements), "a 400 km circular orbit is stable")
+	flight._body["atmosphere_height_meters"] = 500000.0
+	report.check(not flight._is_stable_orbit(circular_elements),
+			"stability follows OrbitModel.impact_radius_meters (atmosphere above the orbit)")
+	flight.free()
+
+
+func _has_low_fuel_alarm(flight: Flight) -> bool:
+	return flight._create_telemetry_frame().active_alarms.has("LOW_FUEL")
+
+
 func _check_terminal_tick_precedence(report: TestReport) -> void:
 	for has_impact in [true, false]:
 		var flight := _start_flight([], 5.0 if has_impact else 200.0)
@@ -238,6 +298,11 @@ func _start_flight(part_ids: Array[String] = [], duration_seconds: float = 200.0
 	var design := RocketDesign.new()
 	design.add_stage(TEST_LIQUID_ENGINE_ID, TEST_TANK_ID)
 	design.payload_part_ids.assign(part_ids)
+	return _start_flight_with_design(design, duration_seconds)
+
+
+## Starts a flight of the given design on a circular 400 km orbit.
+func _start_flight_with_design(design: RocketDesign, duration_seconds: float) -> Flight:
 	var mission := _mission(duration_seconds)
 	GameState.mission = mission
 	GameState.science_mission_id = "flight_test_science"
@@ -289,7 +354,15 @@ func _register_parts() -> void:
 		"channel": TelemetryFrame.CHANNEL_ALTITUDE_METERS, "updates_per_second": 1.0,
 		"noise_fraction": 0.0, "dropout_probability": 1.0,
 	}))
-	GameData.register_part(_part(TEST_CAMERA_ID, "science", {"data_rate_megabits_per_second": 2.0}))
+	GameData.register_part(_part(TEST_SMALL_TANK_ID, "tank", {
+		"propellant_capacity_kilograms": 100.0, "pressurization": "regulated",
+	}))
+	var camera_part := _part(TEST_CAMERA_ID, "science", {"data_rate_megabits_per_second": 2.0})
+	camera_part["mission_fit"] = {"flight_test_science": 2}
+	GameData.register_part(camera_part)
+	var unfit_camera_part := _part(TEST_UNFIT_CAMERA_ID, "science", {"data_rate_megabits_per_second": 5.0})
+	unfit_camera_part["mission_fit"] = {"flight_test_science": 0, "other_science": 3}
+	GameData.register_part(unfit_camera_part)
 
 
 func _part(part_id: String, category: String, stats: Dictionary) -> Dictionary:
