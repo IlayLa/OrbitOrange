@@ -5,7 +5,7 @@ extends Control
 ## Requirements: context/plan_draft.md, section "PLANNING half".
 ##
 ## STUB(T06): shows the overview mock-up, a live orbit monitor, one button
-## that builds a fixed example rocket and the Launch button. No zoom, no chips.
+## that builds ExampleFlight's rocket, launch angle and pulse, and the Launch button. No zoom, no chips.
 ## T06 replaces this file.
 
 var _orbit_monitor: OrbitView
@@ -56,13 +56,11 @@ func _ready() -> void:
 
 
 func _on_build_example_rocket_pressed() -> void:
-	var design: RocketDesign = GameState.design
-	if design.stages.is_empty():
-		var first_stage: Stage = design.add_stage("engine_liquid_basic", "tank_aluminium_basic")
-		design.payload_part_ids.append("telemetry_altimeter_basic")
-		design.payload_part_ids.append("science_camera_basic")
-		GameState.plan.launch_stage_ids.append(first_stage.stage_id)
+	if GameState.mission.is_empty():
+		return
+	ExampleFlight.fill_reference_flight(GameState.design, GameState.plan, GameState.mission)
 	GameState.notify_design_changed()
+	GameState.notify_plan_changed()
 
 
 func _on_launch_pressed() -> void:
