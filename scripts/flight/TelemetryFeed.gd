@@ -1,0 +1,178 @@
+extends RefCounted
+## Samples installed instruments on the simulation clock and holds their last readings.
+
+const CHANNELS: Array[String] = [
+	TelemetryFrame.CHANNEL_ALTITUDE_METERS,
+	TelemetryFrame.CHANNEL_FUEL_KILOGRAMS,
+	TelemetryFrame.CHANNEL_ATTITUDE_RADIANS,
+	TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS,
+	TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN,
+]
+const RADAR_CHANNEL := "radar"
+const CHANNELS_WITH_RADAR: Array[String] = [
+	TelemetryFrame.CHANNEL_ALTITUDE_METERS,
+	TelemetryFrame.CHANNEL_FUEL_KILOGRAMS,
+	TelemetryFrame.CHANNEL_ATTITUDE_RADIANS,
+	TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS,
+	TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN,
+	RADAR_CHANNEL,
+]
+
+var _random: RandomNumberGenerator
+var _parts_by_channel: Dictionary = {}
+var _next_sample_time_by_channel: Dictionary = {}
+var _held_readings: Dictionary = {}
+var _held_contacts: Dictionary = {}
+
+
+func _init(vehicle_state: VehicleState, random: RandomNumberGenerator) -> void:
+	_random = random
+	for part_id in vehicle_state.design.payload_part_ids:
+		var part: Dictionary = GameData.part(part_id)
+		if part.get("category", "") != "telemetry":
+			continue
+		var stats: Dictionary = part.get("stats", {})
+		var channel: String = stats.get("channel", "")
+		if not CHANNELS_WITH_RADAR.has(channel):
+			continue
+		var current_part: Dictionary = _parts_by_channel.get(channel, {})
+		if part.get("tier", 0) > current_part.get("tier", 0):
+			_parts_by_channel[channel] = part
+			_next_sample_time_by_channel[channel] = 0.0
+
+
+## Returns the earliest scheduled instrument update in seconds since launch.
+func next_sample_time_seconds() -> float:
+	var next_time_seconds := INF
+	for sample_time_seconds: float in _next_sample_time_by_channel.values():
+		next_time_seconds = minf(next_time_seconds, sample_time_seconds)
+	return next_time_seconds
+
+
+## Samples due channels at the current simulation time.
+func sample(
+		values_by_channel: Dictionary, craft_state: OrbitState, vehicle_state: VehicleState,
+		threats: Array[Threat], gravitational_parameter: float) -> void:
+	for channel in CHANNELS_WITH_RADAR:
+		if not _parts_by_channel.has(channel):
+			continue
+		var scheduled_time_seconds: float = _next_sample_time_by_channel[channel]
+		if scheduled_time_seconds > craft_state.time_seconds:
+			continue
+		var part: Dictionary = _parts_by_channel[channel]
+		var stats: Dictionary = part["stats"]
+		var updates_per_second: float = stats.get("updates_per_second", 0.0)
+		_next_sample_time_by_channel[channel] = (
+				scheduled_time_seconds + 1.0 / updates_per_second if updates_per_second > 0.0 else INF)
+		var is_working: bool = vehicle_state.is_working_by_instrument.get(part["id"], false)
+		var has_signal: bool = is_working and _random.randf() >= float(stats.get("dropout_probability", 0.0))
+		if channel == RADAR_CHANNEL:
+			_held_contacts.clear()
+			if has_signal:
+				_sample_radar(stats, craft_state, threats, gravitational_parameter)
+		else:
+			var reading := TelemetryReading.new()
+			reading.is_sensor_installed = true
+			reading.is_sensor_working = has_signal
+			reading.sensor_tier = part["tier"]
+			if has_signal:
+				reading.value = _noisy_value(values_by_channel[channel], stats)
+			_held_readings[channel] = reading
+
+
+## Copies held instrument observations into a fresh frame.
+func fill_frame(
+		frame: TelemetryFrame, craft_state: OrbitState, vehicle_state: VehicleState,
+		threats: Array[Threat], gravitational_parameter: float) -> void:
+	for channel in CHANNELS:
+		var reading := TelemetryReading.new()
+		if _parts_by_channel.has(channel):
+			var part: Dictionary = _parts_by_channel[channel]
+			var held: TelemetryReading = _held_readings.get(channel)
+			reading.is_sensor_installed = true
+			reading.sensor_tier = part["tier"]
+			if held != null and vehicle_state.is_working_by_instrument.get(part["id"], false):
+				reading.is_sensor_working = held.is_sensor_working
+				reading.value = held.value
+		frame.readings_by_channel[channel] = reading
+
+	frame.is_radar_installed = _parts_by_channel.has(RADAR_CHANNEL)
+	if not frame.is_radar_installed:
+		return
+	var radar: Dictionary = _parts_by_channel[RADAR_CHANNEL]
+	if not vehicle_state.is_working_by_instrument.get(radar["id"], false):
+		return
+	var maximum_range_meters: float = float(radar["stats"].get("range_kilometers", 0.0)) * 1000.0
+	for threat in threats:
+		if not _held_contacts.has(threat.threat_id) or threat.state == null:
+			continue
+		var state: OrbitState = _threat_state_at(threat, craft_state.time_seconds, gravitational_parameter)
+		if _distance_meters(craft_state, state) <= maximum_range_meters:
+			frame.radar_contacts.append(_held_contacts[threat.threat_id].duplicate())
+
+
+## Drops a cached contact when its threat is removed.
+func forget_threat(threat_id: int) -> void:
+	_held_contacts.erase(threat_id)
+
+
+## Returns the true range, in metres, to the closest supplied threat.
+static func nearest_threat_range_meters(
+		craft_state: OrbitState, threats: Array[Threat], gravitational_parameter: float) -> float:
+	var nearest_range_meters := INF
+	for threat in threats:
+		if threat.state != null:
+			var state: OrbitState = _threat_state_at(threat, craft_state.time_seconds, gravitational_parameter)
+			nearest_range_meters = minf(nearest_range_meters, _distance_meters(craft_state, state))
+	return nearest_range_meters
+
+
+func _sample_radar(
+		stats: Dictionary, craft_state: OrbitState, threats: Array[Threat],
+		gravitational_parameter: float) -> void:
+	var maximum_range_meters: float = float(stats.get("range_kilometers", 0.0)) * 1000.0
+	var resolution_level: int = clampi(int(stats.get("resolution_level", 0)), 0, 2)
+	for threat in threats:
+		if threat.state == null:
+			continue
+		var state: OrbitState = _threat_state_at(threat, craft_state.time_seconds, gravitational_parameter)
+		var relative_x_meters: float = state.position_x_meters - craft_state.position_x_meters
+		var relative_y_meters: float = state.position_y_meters - craft_state.position_y_meters
+		var range_meters: float = sqrt(relative_x_meters * relative_x_meters + relative_y_meters * relative_y_meters)
+		if range_meters > maximum_range_meters:
+			continue
+		var closing_speed_meters_per_second := 0.0
+		if resolution_level == 2 and range_meters > 0.0:
+			var relative_velocity_x_meters_per_second: float = (
+					state.velocity_x_meters_per_second - craft_state.velocity_x_meters_per_second)
+			var relative_velocity_y_meters_per_second: float = (
+					state.velocity_y_meters_per_second - craft_state.velocity_y_meters_per_second)
+			closing_speed_meters_per_second = -(
+					relative_x_meters * relative_velocity_x_meters_per_second
+					+ relative_y_meters * relative_velocity_y_meters_per_second) / range_meters
+			closing_speed_meters_per_second = _noisy_value(closing_speed_meters_per_second, stats)
+		_held_contacts[threat.threat_id] = {
+			"bearing_radians": wrapf(_noisy_value(atan2(relative_y_meters, relative_x_meters), stats), -PI, PI),
+			"range_meters": maxf(0.0, _noisy_value(range_meters, stats)),
+			"closing_speed_meters_per_second": closing_speed_meters_per_second,
+			"resolution_level": resolution_level,
+			"event_type_id": threat.event_type_id if resolution_level == 2 else "",
+		}
+		threat.is_revealed = true
+
+
+func _noisy_value(value: float, stats: Dictionary) -> float:
+	var noise_fraction: float = stats.get("noise_fraction", 0.0)
+	return value * (1.0 + noise_fraction * _random.randf_range(-1.0, 1.0))
+
+
+static func _threat_state_at(threat: Threat, time_seconds: float, gravitational_parameter: float) -> OrbitState:
+	if time_seconds == threat.state.time_seconds:
+		return threat.state
+	return Kepler.propagate(gravitational_parameter, threat.state, time_seconds - threat.state.time_seconds)
+
+
+static func _distance_meters(first: OrbitState, second: OrbitState) -> float:
+	var difference_x_meters: float = first.position_x_meters - second.position_x_meters
+	var difference_y_meters: float = first.position_y_meters - second.position_y_meters
+	return sqrt(difference_x_meters * difference_x_meters + difference_y_meters * difference_y_meters)
