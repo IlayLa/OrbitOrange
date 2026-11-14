@@ -20,18 +20,22 @@ const STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED := 9.80665
 const EMPTY_PROPELLANT_KILOGRAMS := 0.000001
 ## A liquid pulse counts as delivered when it falls short by less than this.
 const AFFORDABLE_TOLERANCE_METERS_PER_SECOND := 0.01
-## Sentences of validate_design that start with this do not stop a launch.
+## Advice sentences in PlanSummary.warnings start with this. Whether a sentence
+## stops a launch is decided by PlanSummary.blocking_problems, not by this text.
 const WARNING_PREFIX := "Warning:"
 
 
 ## The rocket equation: velocity change in meters per second from burning the
-## rocket down from initial_mass_kilograms to final_mass_kilograms.
+## rocket down from initial_mass_kilograms to final_mass_kilograms. Zero when
+## the masses make no sense (a final mass of zero or less, or no mass burned).
 static func delta_v_from_rocket_equation(
 		specific_impulse_seconds: float,
 		initial_mass_kilograms: float,
 		final_mass_kilograms: float) -> float:
-	var exhaust_speed_meters_per_second: float = specific_impulse_seconds * STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED
-	return exhaust_speed_meters_per_second * log(initial_mass_kilograms / final_mass_kilograms)
+	if final_mass_kilograms <= 0.0 or initial_mass_kilograms <= final_mass_kilograms:
+		return 0.0
+	return _exhaust_speed_meters_per_second(specific_impulse_seconds) * log(
+			initial_mass_kilograms / final_mass_kilograms)
 
 
 ## The rocket equation solved for propellant: kilograms that must be burned to
@@ -40,8 +44,8 @@ static func propellant_needed_for_delta_v(
 		specific_impulse_seconds: float,
 		initial_mass_kilograms: float,
 		delta_v_meters_per_second: float) -> float:
-	var exhaust_speed_meters_per_second: float = specific_impulse_seconds * STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED
-	return initial_mass_kilograms * (1.0 - exp(-delta_v_meters_per_second / exhaust_speed_meters_per_second))
+	return initial_mass_kilograms * (1.0 - exp(
+			-delta_v_meters_per_second / _exhaust_speed_meters_per_second(specific_impulse_seconds)))
 
 
 ## Sum of the cost of every part in the design, in million USD.
@@ -107,19 +111,11 @@ static func total_mass_kilograms(vehicle_state: VehicleState) -> float:
 ## Zero when it cannot fire: unknown, failed, dropped or empty.
 static func available_delta_v_meters_per_second(vehicle_state: VehicleState, stage_id: int) -> float:
 	var stage_index: int = _stage_index(vehicle_state.design, stage_id)
-	if stage_index < 0:
+	if not _can_fire(vehicle_state, stage_index):
 		return 0.0
-	if vehicle_state.has_failed_by_stage.get(stage_id, false):
-		return 0.0
-	if vehicle_state.is_jettisoned_by_stage.get(stage_id, false):
-		return 0.0
-	var propellant_kilograms: float = vehicle_state.propellant_kilograms_by_stage.get(stage_id, 0.0)
-	if propellant_kilograms <= EMPTY_PROPELLANT_KILOGRAMS:
-		return 0.0
+	var propellant_kilograms: float = vehicle_state.propellant_kilograms_by_stage[stage_id]
 	var specific_impulse_seconds: float = _effective_specific_impulse_seconds(
 			vehicle_state, vehicle_state.design.stages[stage_index])
-	if specific_impulse_seconds <= 0.0:
-		return 0.0
 	var initial_mass_kilograms: float = _mass_when_stage_fires_kilograms(vehicle_state, stage_index)
 	return delta_v_from_rocket_equation(
 			specific_impulse_seconds, initial_mass_kilograms, initial_mass_kilograms - propellant_kilograms)
@@ -133,7 +129,8 @@ static func available_delta_v_meters_per_second(vehicle_state: VehicleState, sta
 ## ignition, after the lower stages have been dropped: the mass the engine
 ## really pushes. When the stage cannot fire, or any engine is asked for
 ## nothing (a burn with no direction), did_fire is false and vehicle_state is
-## left unchanged.
+## left unchanged. A weakened engine (specific impulse factor below 1) keeps
+## its mass flow and loses thrust, so its burns take as long as a healthy one's.
 static func apply_burn(
 		vehicle_state: VehicleState,
 		stage_id: int,
@@ -141,12 +138,10 @@ static func apply_burn(
 	var outcome := BurnOutcome.new()
 	outcome.mass_before_kilograms = total_mass_kilograms(vehicle_state)
 	outcome.mass_after_kilograms = outcome.mass_before_kilograms
-	if requested_delta_v_meters_per_second <= 0.0:
-		return outcome
-	if available_delta_v_meters_per_second(vehicle_state, stage_id) <= 0.0:
+	var stage_index: int = _stage_index(vehicle_state.design, stage_id)
+	if requested_delta_v_meters_per_second <= 0.0 or not _can_fire(vehicle_state, stage_index):
 		return outcome
 
-	var stage_index: int = _stage_index(vehicle_state.design, stage_id)
 	var stage: Stage = vehicle_state.design.stages[stage_index]
 	var is_solid_motor: bool = _is_solid(stage)
 
@@ -180,11 +175,13 @@ static func apply_burn(
 	outcome.mass_before_kilograms = mass_at_ignition_kilograms
 	outcome.mass_after_kilograms = total_mass_kilograms(vehicle_state)
 
+	# Mass flow comes from the engine's rated thrust and specific impulse.
 	var engine_stats: Dictionary = GameData.part(stage.engine_part_id).get("stats", {})
 	var thrust_newtons: float = engine_stats.get("thrust_kilonewtons", 0.0) * 1000.0
-	if thrust_newtons > 0.0:
-		var mass_flow_kilograms_per_second: float = thrust_newtons / (
-				specific_impulse_seconds * STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED)
+	var rated_specific_impulse_seconds: float = engine_stats.get("specific_impulse_seconds", 0.0)
+	if thrust_newtons > 0.0 and rated_specific_impulse_seconds > 0.0:
+		var mass_flow_kilograms_per_second: float = (
+				thrust_newtons / _exhaust_speed_meters_per_second(rated_specific_impulse_seconds))
 		outcome.burn_duration_seconds = propellant_used_kilograms / mass_flow_kilograms_per_second
 	return outcome
 
@@ -193,8 +190,9 @@ static func apply_burn(
 ## pulse fires in order. launch_loss_meters_per_second (gravity and drag) is
 ## subtracted from the launch stages' velocity change to give the burnout
 ## speed, which is never below zero. Returns a PlanSummary with every field
-## filled; its warnings are validate_design plus the problems of the plan.
-## Plan problems that start with "Warning:" are advice (see blocking_sentences).
+## filled. Its warnings are every sentence for the player: validate_design plus
+## the problems of the plan. Its blocking_problems are the ones among them that
+## stop a launch; the rest start with "Warning:" and are advice.
 static func summarize_plan(
 		design: RocketDesign,
 		plan: MissionPlan,
@@ -207,7 +205,8 @@ static func summarize_plan(
 	for stage in design.stages:
 		total_propellant_kilograms += full_propellant_kilograms(stage)
 	summary.dry_mass_kilograms = summary.wet_mass_kilograms - total_propellant_kilograms
-	summary.warnings = validate_design(design)
+	summary.blocking_problems = validate_design(design)
+	summary.warnings = summary.blocking_problems.duplicate()
 
 	var full_burn_state: VehicleState = vehicle_state.duplicate_vehicle_state()
 	for stage in design.stages:
@@ -236,11 +235,12 @@ static func summarize_plan(
 			0.0, launch_delta_v_meters_per_second - launch_loss_meters_per_second)
 	if not did_any_launch_stage_fire and not design.stages.is_empty():
 		summary.warnings.append("No stage fires at launch.")
+		summary.blocking_problems.append("No stage fires at launch.")
 
 	for pulse_index in plan.pulses.size():
 		var pulse: Pulse = plan.pulses[pulse_index]
 		var requested_delta_v_meters_per_second: float = pulse.requested_delta_v_meters_per_second()
-		var could_stage_fire: bool = available_delta_v_meters_per_second(vehicle_state, pulse.stage_id) > 0.0
+		var could_stage_fire: bool = _can_fire(vehicle_state, _stage_index(design, pulse.stage_id))
 		var pulse_outcome: BurnOutcome = apply_burn(
 				vehicle_state, pulse.stage_id, requested_delta_v_meters_per_second)
 		var is_solid_motor: bool = _is_solid(design.find_stage(pulse.stage_id))
@@ -269,7 +269,8 @@ static func summarize_plan(
 
 ## Problems with the design, one sentence each, for the player. Stages are
 ## named by position: "Stage 1" is the bottom stage. Every sentence here stops
-## a launch. The thrust check needs the plan, so summarize_plan makes it.
+## a launch; an empty list means the design can be launched. The thrust check
+## needs the plan, so summarize_plan makes it.
 static func validate_design(design: RocketDesign) -> Array[String]:
 	var problems: Array[String] = []
 	if design.stages.is_empty():
@@ -295,31 +296,15 @@ static func validate_design(design: RocketDesign) -> Array[String]:
 	return problems
 
 
-## The sentences of validate_design that stop the rocket from flying. An empty
-## list means the design can be launched.
-static func blocking_problems(design: RocketDesign) -> Array[String]:
-	return blocking_sentences(validate_design(design))
-
-
-## The sentences that stop a launch, without the "Warning:" ones. Pass it
-## PlanSummary.warnings to decide whether the Launch button is enabled.
-static func blocking_sentences(sentences: Array[String]) -> Array[String]:
-	var blocking: Array[String] = []
-	for sentence in sentences:
-		if not sentence.begins_with(WARNING_PREFIX):
-			blocking.append(sentence)
-	return blocking
-
-
 ## A warning when the first stage that really fires at launch pushes with less
 ## than the weight it lifts, or "" when it is strong enough. Stages that cannot
 ## fire are skipped, and a stage that is not a proper engine is left to
 ## validate_design.
 static func _launch_thrust_warning(vehicle_state: VehicleState, plan: MissionPlan) -> String:
 	for launch_stage_id in plan.launch_stage_ids:
-		if available_delta_v_meters_per_second(vehicle_state, launch_stage_id) <= 0.0:
-			continue
 		var stage_index: int = _stage_index(vehicle_state.design, launch_stage_id)
+		if not _can_fire(vehicle_state, stage_index):
+			continue
 		var engine_part: Dictionary = GameData.part(vehicle_state.design.stages[stage_index].engine_part_id)
 		if engine_part.get("category", "") != GameData.CATEGORY_ENGINE:
 			return ""
@@ -336,10 +321,28 @@ static func _launch_thrust_warning(vehicle_state: VehicleState, plan: MissionPla
 
 ## Fires a stage until it is empty, whatever its engine type.
 static func _burn_stage_completely(vehicle_state: VehicleState, stage_id: int) -> BurnOutcome:
-	# Asking for more than the stage holds makes a liquid engine use all of it.
-	var more_than_available_meters_per_second: float = (
-			available_delta_v_meters_per_second(vehicle_state, stage_id) + 1.0)
-	return apply_burn(vehicle_state, stage_id, more_than_available_meters_per_second)
+	# Asking for more than any stage holds makes a liquid engine use all of it.
+	return apply_burn(vehicle_state, stage_id, INF)
+
+
+## True when the stage at stage_index exists and can fire now: not failed, not
+## dropped, holding propellant, and with an engine that has a specific impulse.
+static func _can_fire(vehicle_state: VehicleState, stage_index: int) -> bool:
+	if stage_index < 0:
+		return false
+	var stage: Stage = vehicle_state.design.stages[stage_index]
+	if vehicle_state.has_failed_by_stage.get(stage.stage_id, false):
+		return false
+	if vehicle_state.is_jettisoned_by_stage.get(stage.stage_id, false):
+		return false
+	if vehicle_state.propellant_kilograms_by_stage.get(stage.stage_id, 0.0) <= EMPTY_PROPELLANT_KILOGRAMS:
+		return false
+	return _effective_specific_impulse_seconds(vehicle_state, stage) > 0.0
+
+
+## Exhaust speed in meters per second of an engine with this specific impulse.
+static func _exhaust_speed_meters_per_second(specific_impulse_seconds: float) -> float:
+	return specific_impulse_seconds * STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED
 
 
 ## Position of the stage in design.stages (0 is the bottom), or -1 when unknown.

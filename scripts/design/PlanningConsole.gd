@@ -78,8 +78,8 @@ func _refresh() -> void:
 
 	# The Launch button is disabled only when the rocket cannot fly at all.
 	# Going over budget is allowed; it costs score points instead.
-	# Sentences that start with "Warning:" are advice and do not block it.
-	_launch_button.disabled = not RocketModel.blocking_sentences(summary.warnings).is_empty()
+	# Advice ("Warning: ...") is shown but does not block it.
+	_launch_button.disabled = not summary.blocking_problems.is_empty()
 	_status_label.text = "Cost %.1f of %.1f million USD   Weight %.0f kg\n%s" % [
 			summary.cost_million_usd,
 			GameState.budget_million_usd,
