@@ -8,7 +8,8 @@ extends RefCounted
 ## Negative for an open (escape) orbit.
 var semi_major_axis_meters: float = 0.0
 var eccentricity: float = 0.0
-## Angle from the +x axis to the periapsis direction. Zero for a circular orbit.
+## Angle from the +x axis to the periapsis direction, measured in the direction
+## of motion (clockwise for a clockwise orbit). Zero for a circular orbit.
 var argument_of_periapsis_radians: float = 0.0
 ## Angle from the periapsis direction to the object.
 ## For a circular orbit: angle from the +x axis to the object.
