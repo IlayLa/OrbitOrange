@@ -26,12 +26,18 @@ const TAB_TOOLTIPS: Array[String] = [
 	"Science: instruments carried as payload",
 ]
 const SCROLL_BAR_WIDTH_PIXELS := 8.0
+## Limits of the design. They are game values, chosen so that every block of
+## the stack preview stays high enough to read and to click.
+const MAXIMUM_STAGE_COUNT := 5
+const MAXIMUM_PAYLOAD_PART_COUNT := 10
 const HINT_FONT_SIZE_PIXELS := 8
 const POPUP_GAP_PIXELS := 4.0
 
 const HINT_DEFAULT := "Click a card to add the part.\nClick a part in the rocket to remove it."
 const HINT_NO_LIQUID_STAGE := "A tank needs a liquid engine.\nAdd a liquid engine under ENG first."
 const HINT_NO_MISSION := "No mission selected."
+const HINT_TOO_MANY_STAGES := "The rocket is full: %d stages at most.\nRemove a stage first."
+const HINT_TOO_MANY_PAYLOAD_PARTS := "The payload is full: %d parts at most.\nRemove a part first."
 const HINT_LAUNCHED := "The rocket has launched.\nIts design can no longer change."
 
 ## The category whose cards are listed now.
@@ -119,7 +125,8 @@ func find_part_card(part_id: String) -> PartCard:
 ##   tank                 the tank of the selected liquid stage; see
 ##                        _stage_for_new_tank for the choice without a selection
 ##   telemetry, science   one more payload part
-## Does nothing once the rocket has launched.
+## Does nothing once the rocket has launched, or when the rocket already has
+## MAXIMUM_STAGE_COUNT stages or MAXIMUM_PAYLOAD_PART_COUNT payload parts.
 func install_part(part_id: String) -> void:
 	if _is_design_locked():
 		return
@@ -131,6 +138,10 @@ func install_part(part_id: String) -> void:
 
 	match part.get("category", ""):
 		GameData.CATEGORY_ENGINE:
+			if design.stages.size() >= MAXIMUM_STAGE_COUNT:
+				_hint_text = HINT_TOO_MANY_STAGES % MAXIMUM_STAGE_COUNT
+				_refresh()
+				return
 			var new_stage: Stage = design.add_stage(part_id)
 			if not RocketStackPreview.is_solid_engine(part_id):
 				selected_stage_id = new_stage.stage_id
@@ -143,6 +154,10 @@ func install_part(part_id: String) -> void:
 			stage_for_tank.tank_part_id = part_id
 			selected_stage_id = stage_for_tank.stage_id
 		GameData.CATEGORY_TELEMETRY, GameData.CATEGORY_SCIENCE:
+			if design.payload_part_ids.size() >= MAXIMUM_PAYLOAD_PART_COUNT:
+				_hint_text = HINT_TOO_MANY_PAYLOAD_PARTS % MAXIMUM_PAYLOAD_PART_COUNT
+				_refresh()
+				return
 			design.payload_part_ids.append(part_id)
 		_:
 			return
@@ -161,7 +176,9 @@ func remove_stage(stage_id: int) -> void:
 	design.remove_stage(stage_id)
 
 	var plan: MissionPlan = GameState.plan
-	plan.launch_stage_ids.erase(stage_id)
+	# erase removes one entry only, so repeat it in case the id is listed twice.
+	while plan.launch_stage_ids.has(stage_id):
+		plan.launch_stage_ids.erase(stage_id)
 	var kept_pulses: Array[Pulse] = []
 	for pulse in plan.pulses:
 		if pulse.stage_id != stage_id:

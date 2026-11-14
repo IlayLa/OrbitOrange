@@ -361,7 +361,11 @@ func _refresh() -> void:
 		"pixels_per_kilometer": OVERVIEW_PIXELS_PER_KILOMETER,
 	}}
 	_orbit_monitor.configure(GameData.body(GameState.mission.get("body_id", "earth")), overview_display)
-	_orbit_monitor.show_trajectory(GameState.trajectory)
+	# A rocket that cannot leave the pad has a path of zero length, which
+	# OrbitView cannot draw without engine warnings. The monitor then shows
+	# the body alone.
+	var has_flight_path: bool = summary.burnout_speed_meters_per_second > 0.0
+	_orbit_monitor.show_trajectory(GameState.trajectory if has_flight_path else null)
 
 
 ## Blocking problems first, in red, then the other sentences of warnings.

@@ -79,7 +79,7 @@ func _capture_screens(directory: String) -> void:
 	await _capture_image(directory.path_join("overview_built.png"))
 
 	# Enough copies of the most expensive science part to go over budget.
-	for copy_index in 6:
+	for copy_index in 4:
 		rocket_design_screen.install_part("science_imaging_radar")
 	await _capture_image(directory.path_join("overview_over_budget.png"))
 

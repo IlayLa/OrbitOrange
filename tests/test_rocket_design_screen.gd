@@ -222,6 +222,8 @@ func _check_removing_a_stage_cleans_the_plan(report: TestReport) -> void:
 
 	var first_stage_id: int = GameState.design.stages[0].stage_id
 	var second_stage_id: int = GameState.design.stages[1].stage_id
+	# The same id twice must not survive the clean-up either.
+	GameState.plan.launch_stage_ids.append(first_stage_id)
 	report.check(GameState.plan.launch_stage_ids.has(first_stage_id), "fixture: the first stage fires at launch")
 	report.check(GameState.plan.pulses.size() == 2, "fixture: one pulse per stage")
 
@@ -276,6 +278,27 @@ func _check_tank_rules(report: TestReport) -> void:
 	report.check(
 			upper_liquid_stage.tank_part_id == TANK_PART_ID,
 			"with no selection a tank goes to the highest liquid stage without one")
+
+	# The limits of the design: a full rocket refuses more parts and says why.
+	var stage_limit: int = screen.MAXIMUM_STAGE_COUNT
+	var payload_limit: int = screen.MAXIMUM_PAYLOAD_PART_COUNT
+	for extra_stage_index in stage_limit + 2:
+		_press_card(screen, GameData.CATEGORY_ENGINE, SOLID_ENGINE_PART_ID)
+	report.check(GameState.design.stages.size() == stage_limit, "the rocket takes no more stages than the limit")
+	report.check(screen._hint_label.text.contains("stages at most"), "the screen says that the rocket is full")
+	for extra_payload_index in payload_limit + 2:
+		_press_card(screen, GameData.CATEGORY_TELEMETRY, TELEMETRY_PART_ID)
+	report.check(
+			GameState.design.payload_part_ids.size() == payload_limit,
+			"the payload takes no more parts than the limit")
+	report.check(screen._hint_label.text.contains("parts at most"), "the screen says that the payload is full")
+	var smallest_block_height_pixels: float = INF
+	for block in screen.stack_preview.blocks_of_kind(RocketStackPreview.BlockKind.PAYLOAD):
+		var block_rect: Rect2 = block["rect"]
+		smallest_block_height_pixels = minf(smallest_block_height_pixels, block_rect.size.y)
+	report.check(
+			smallest_block_height_pixels >= 8.0,
+			"a full rocket still has blocks high enough to click (%.1f pixels)" % smallest_block_height_pixels)
 
 	# Every liquid stage has a tank now and none is selected: the same state
 	# as right after "Build example rocket".
