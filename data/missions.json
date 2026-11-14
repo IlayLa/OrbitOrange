@@ -4,7 +4,9 @@
 		"name": "First orbit",
 		"briefing": "Placeholder mission: reach a circular low Earth orbit and photograph the planet.",
 		"body_id": "earth",
-		"launch_site": { "polar_angle_degrees": 90 },
+		"launch_site": {
+			"polar_angle_degrees": 90
+		},
 		"launch_loss_meters_per_second": 1500,
 		"target": {
 			"altitude_kilometers": 400,
@@ -17,7 +19,11 @@
 		"display": {
 			"body_radius_pixels": 90,
 			"pixels_per_kilometer": 0.06,
-			"altitude_ring_kilometers": [200, 400, 800]
+			"altitude_ring_kilometers": [
+				200,
+				400,
+				800
+			]
 		},
 		"science_missions": [
 			{
@@ -43,7 +49,9 @@
 					"type": "reserve_delta_v_at_least",
 					"delta_v_meters_per_second": 100
 				},
-				"related_event_type_ids": ["satellite_conjunction"],
+				"related_event_type_ids": [
+					"satellite_conjunction"
+				],
 				"related_multiplier": 3.0,
 				"unrelated_bonus": 0.05
 			}
@@ -55,17 +63,130 @@
 				"type": "altitude_band",
 				"inner_altitude_kilometers": 700,
 				"outer_altitude_kilometers": 1000,
-				"event_type_ids": ["satellite_conjunction"]
+				"event_type_ids": [
+					"satellite_conjunction"
+				]
 			}
 		],
 		"hazard_rates": {
 			"satellite_conjunction": [
-				{ "inner_altitude_kilometers": 0, "outer_altitude_kilometers": 2000, "events_per_hour": 0.2 },
-				{ "inner_altitude_kilometers": 2000, "outer_altitude_kilometers": 100000, "events_per_hour": 0.02 }
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.2
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.02
+				}
 			]
 		},
 		"ground_stations": [
-			{ "polar_angle_degrees": 90 }
+			{
+				"polar_angle_degrees": 90
+			}
+		]
+	},
+	{
+		"id": "higher_earth_orbit_placeholder",
+		"name": "Higher horizons",
+		"briefing": "Placeholder mission: reach an 800 km circular Earth orbit and compare imaging with a future space-weather payload.",
+		"body_id": "earth",
+		"launch_site": {
+			"polar_angle_degrees": 90
+		},
+		"launch_loss_meters_per_second": 1500,
+		"target": {
+			"altitude_kilometers": 800,
+			"altitude_tolerance_kilometers": 100,
+			"eccentricity": 0.0,
+			"eccentricity_tolerance": 0.05
+		},
+		"duration_seconds": 21000,
+		"budget_million_usd": 45,
+		"display": {
+			"body_radius_pixels": 90,
+			"pixels_per_kilometer": 0.06,
+			"altitude_ring_kilometers": [
+				400,
+				800,
+				1200
+			]
+		},
+		"science_missions": [
+			{
+				"id": "earth_imaging",
+				"name": "High-orbit Earth imaging",
+				"description": "Placeholder: photograph Earth from the higher science band.",
+				"zone": {
+					"type": "altitude_band",
+					"inner_altitude_kilometers": 700,
+					"outer_altitude_kilometers": 900
+				},
+				"required_coverage_fraction": 0.8,
+				"required_data_megabits": 5000
+			},
+			{
+				"id": "space_weather",
+				"name": "Space weather",
+				"description": "Placeholder: study the near-Earth environment; awaits a compatible instrument from T02.",
+				"zone": {
+					"type": "altitude_band",
+					"inner_altitude_kilometers": 600,
+					"outer_altitude_kilometers": 1000
+				},
+				"required_coverage_fraction": 0.8,
+				"required_data_megabits": 5000
+			}
+		],
+		"side_quests": [
+			{
+				"id": "use_reserve_placeholder",
+				"name": "Use the reserve",
+				"description": "Placeholder: finish with at most 10 m/s of delta-v remaining; little reserve remains for emergencies.",
+				"grant_million_usd": 5,
+				"condition": {
+					"type": "reserve_delta_v_at_most",
+					"delta_v_meters_per_second": 10
+				},
+				"related_event_type_ids": [
+					"satellite_conjunction"
+				],
+				"related_multiplier": 3.0,
+				"unrelated_bonus": 0.05
+			}
+		],
+		"hazard_zones": [
+			{
+				"id": "debris_belt_placeholder",
+				"name": "Debris belt",
+				"type": "altitude_band",
+				"inner_altitude_kilometers": 700,
+				"outer_altitude_kilometers": 1000,
+				"event_type_ids": [
+					"satellite_conjunction"
+				]
+			}
+		],
+		"hazard_rates": {
+			"satellite_conjunction": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.2
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.02
+				}
+			]
+		},
+		"ground_stations": [
+			{
+				"polar_angle_degrees": 90
+			}
 		]
 	}
 ]
