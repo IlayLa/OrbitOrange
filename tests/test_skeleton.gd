@@ -67,6 +67,9 @@ func _check_plan_resolves(report: TestReport) -> void:
 
 	var plan := MissionPlan.new()
 	plan.launch_stage_ids.append(first_stage.stage_id)
+	# Above the horizontal: a horizontal launch below circular speed starts at
+	# its apoapsis on the ground and impacts at once (changed by T01).
+	plan.launch_angle_radians = deg_to_rad(30.0)
 	var pulse := Pulse.new()
 	pulse.pulse_id = plan.next_free_pulse_id()
 	pulse.stage_id = first_stage.stage_id
