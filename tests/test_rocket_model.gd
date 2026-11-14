@@ -96,6 +96,9 @@ func _check_rocket_equation(report: TestReport) -> void:
 	report.check_close(
 			RocketModel.propellant_needed_for_delta_v(300.0, 3000.0, delta_v_meters_per_second), 100.0, 0.000001,
 			"propellant_needed_for_delta_v is the inverse of the rocket equation")
+	report.check(
+			RocketModel.delta_v_from_rocket_equation(300.0, 1000.0, 0.0) == 0.0,
+			"burning down to no mass at all gives zero, not infinity")
 
 
 func _check_two_stage_burn(report: TestReport) -> void:
@@ -151,6 +154,24 @@ func _check_solid_motor(report: TestReport) -> void:
 	report.check(outcome.jettisoned_stage_ids.has(1), "the burn reports the emptied stage as dropped")
 	report.check_close(outcome.mass_after_kilograms, 100.0, 0.000001, "only the payload is left after the motor is dropped")
 
+	# A pulse with no direction cannot be flown, so a solid motor keeps its propellant.
+	var unfired_state: VehicleState = RocketModel.create_vehicle_state(design)
+	report.check(not RocketModel.apply_burn(unfired_state, 1, 0.0).did_fire, "a solid motor asked for nothing does not fire")
+	report.check_close(
+			unfired_state.propellant_kilograms_by_stage[1], 500.0, 0.000001,
+			"a solid motor asked for nothing keeps its propellant")
+
+	var no_direction_plan := MissionPlan.new()
+	no_direction_plan.pulses.append(_pulse(1, 0.0))
+	var no_direction_summary: PlanSummary = RocketModel.summarize_plan(design, no_direction_plan, 0.0)
+	report.check(
+			no_direction_summary.delta_v_delivered_by_pulse[0] == 0.0
+			and no_direction_summary.delta_v_remaining_by_stage[1] > 0.0,
+			"a solid pulse with no direction delivers nothing and leaves the motor full")
+	report.check(
+			no_direction_summary.warnings.any(func(sentence: String) -> bool: return sentence.contains("no direction")),
+			"a solid pulse with no direction is reported")
+
 
 func _check_liquid_engine_limits(report: TestReport) -> void:
 	var design: RocketDesign = _two_stage_design()
@@ -182,6 +203,19 @@ func _check_broken_and_weakened_stages(report: TestReport) -> void:
 	report.check_close(
 			RocketModel.available_delta_v_meters_per_second(vehicle_state, 2), healthy_delta_v * 0.5, 0.000001,
 			"half the specific impulse gives half the delta-v")
+	var healthy_state: VehicleState = RocketModel.create_vehicle_state(design)
+	var healthy_outcome: BurnOutcome = RocketModel.apply_burn(healthy_state, 2, 50.0)
+	var weakened_state: VehicleState = RocketModel.create_vehicle_state(design)
+	weakened_state.specific_impulse_factor_by_stage[2] = 0.5
+	var weakened_outcome: BurnOutcome = RocketModel.apply_burn(weakened_state, 2, 50.0)
+	var rated_mass_flow_kilograms_per_second: float = 30000.0 / (300.0 * STANDARD_GRAVITY)
+	report.check_close(
+			weakened_outcome.burn_duration_seconds,
+			weakened_outcome.propellant_used_kilograms / rated_mass_flow_kilograms_per_second, 0.000001,
+			"a weakened engine burns at its rated mass flow")
+	report.check(
+			weakened_outcome.burn_duration_seconds > healthy_outcome.burn_duration_seconds,
+			"a weakened engine needs longer for the same velocity change")
 	vehicle_state.has_failed_by_stage[2] = true
 	report.check(RocketModel.available_delta_v_meters_per_second(vehicle_state, 2) == 0.0, "a failed stage has no delta-v")
 	report.check(not RocketModel.apply_burn(vehicle_state, 2, 100.0).did_fire, "a failed stage does not fire")
@@ -224,6 +258,26 @@ func _check_plan_summary(report: TestReport) -> void:
 			no_launch_summary.warnings.has("No stage fires at launch."),
 			"a plan without a launch stage is reported")
 
+	# Upper stage listed first: it drops stage 1, which then cannot fire.
+	var upside_down_plan := MissionPlan.new()
+	upside_down_plan.launch_stage_ids.append(2)
+	upside_down_plan.launch_stage_ids.append(1)
+	var upside_down_summary: PlanSummary = RocketModel.summarize_plan(design, upside_down_plan, 0.0)
+	report.check(
+			upside_down_summary.warnings.size() == 1
+			and upside_down_summary.warnings[0].begins_with(RocketModel.WARNING_PREFIX)
+			and upside_down_summary.warnings[0].contains("Stage 1"),
+			"a launch stage that is dropped before it fires is reported as a warning")
+
+	var unknown_launch_plan := MissionPlan.new()
+	unknown_launch_plan.launch_stage_ids.append(1)
+	unknown_launch_plan.launch_stage_ids.append(99)
+	var unknown_launch_summary: PlanSummary = RocketModel.summarize_plan(design, unknown_launch_plan, 0.0)
+	report.check(
+			unknown_launch_summary.warnings.size() == 1
+			and unknown_launch_summary.warnings[0].contains("not part of the rocket"),
+			"a launch stage the rocket does not have is reported")
+
 
 func _check_validation(report: TestReport) -> void:
 	report.check(
@@ -233,7 +287,7 @@ func _check_validation(report: TestReport) -> void:
 	var tankless_design := RocketDesign.new()
 	tankless_design.add_stage("test_engine_liquid")
 	report.check(
-			RocketModel.blocking_problems(tankless_design).has("Stage 1 has a liquid engine but no tank."),
+			RocketModel.validate_design(tankless_design).has("Stage 1 has a liquid engine but no tank."),
 			"a liquid engine without a tank blocks the launch")
 
 	var wrong_parts_design := RocketDesign.new()
@@ -242,21 +296,52 @@ func _check_validation(report: TestReport) -> void:
 	wrong_parts_design.add_stage("test_engine_liquid", "test_payload")
 	wrong_parts_design.payload_part_ids.append("test_tank")
 	report.check(
-			RocketModel.blocking_problems(wrong_parts_design).size() == 4,
+			RocketModel.validate_design(wrong_parts_design).size() == 4,
 			"each wrongly used part gives one sentence")
 
 	var weak_design := RocketDesign.new()
-	weak_design.add_stage("test_engine_weak", "test_tank")
-	var weak_problems: Array[String] = RocketModel.validate_design(weak_design)
+	var weak_stage: Stage = weak_design.add_stage("test_engine_weak", "test_tank")
+	var weak_plan := MissionPlan.new()
+	weak_plan.launch_stage_ids.append(weak_stage.stage_id)
+	var weak_summary: PlanSummary = RocketModel.summarize_plan(weak_design, weak_plan, 0.0)
+	var weak_warnings: Array[String] = weak_summary.warnings
 	report.check(
-			weak_problems.size() == 1 and weak_problems[0].begins_with(RocketModel.WARNING_PREFIX),
+			weak_warnings.size() == 1 and weak_warnings[0].begins_with(RocketModel.WARNING_PREFIX),
 			"thrust below the weight on the pad gives a warning")
 	report.check(
-			RocketModel.blocking_problems(weak_design).is_empty(),
+			weak_summary.blocking_problems.is_empty(),
 			"the thrust warning does not block the launch")
 	report.check(
 			RocketModel.validate_design(_two_stage_design()).is_empty(),
 			"a sound design has no problems")
+
+	# A weak bottom stage that is not fired at launch: the check uses the stage
+	# that really fires first, which lifts only itself and what is above it.
+	var weak_bottom_design := RocketDesign.new()
+	weak_bottom_design.add_stage("test_engine_weak", "test_tank")
+	var strong_upper_stage: Stage = weak_bottom_design.add_stage("test_engine_liquid", "test_tank")
+	var upper_first_plan := MissionPlan.new()
+	upper_first_plan.launch_stage_ids.append(strong_upper_stage.stage_id)
+	report.check(
+			RocketModel.summarize_plan(weak_bottom_design, upper_first_plan, 0.0).warnings.is_empty(),
+			"the thrust check uses the first stage that fires at launch, not the bottom stage")
+
+	var engineless_design := RocketDesign.new()
+	var engineless_stage: Stage = engineless_design.add_stage("", "test_tank")
+	var engineless_plan := MissionPlan.new()
+	engineless_plan.launch_stage_ids.append(engineless_stage.stage_id)
+	var engineless_warnings: Array[String] = RocketModel.summarize_plan(engineless_design, engineless_plan, 0.0).warnings
+	report.check(
+			not engineless_warnings.any(func(sentence: String) -> bool: return sentence.contains("kilonewtons")),
+			"a stage without an engine gives no thrust warning on top of its blocking problem")
+
+	var engineless_blocking: Array[String] = (
+			RocketModel.summarize_plan(engineless_design, engineless_plan, 0.0).blocking_problems)
+	report.check(
+			engineless_warnings.size() == 3 and engineless_blocking.size() == 2
+			and engineless_blocking.has("Stage 1 has no engine.")
+			and engineless_blocking.has("No stage fires at launch."),
+			"blocking_problems holds the design problems and the missing launch, not the advice")
 
 
 func _check_catalogue_format(report: TestReport) -> void:

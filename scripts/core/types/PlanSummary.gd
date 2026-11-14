@@ -21,5 +21,8 @@ var is_pulse_affordable: Array[bool] = []
 var delta_v_remaining_by_stage: Dictionary = {}
 ## Sum of delta_v_remaining_by_stage: the safety margin for emergencies.
 var reserve_delta_v_meters_per_second: float = 0.0
-## Human-readable problems, for example "Stage 2 has no tank".
+## Human-readable problems, for example "Stage 2 has no tank". Advice that
+## does not stop a launch starts with RocketModel.WARNING_PREFIX.
 var warnings: Array[String] = []
+## The sentences of warnings that stop a launch. Empty means Launch is allowed.
+var blocking_problems: Array[String] = []
