@@ -37,6 +37,7 @@ const OVERVIEW_PIXELS_PER_KILOMETER := 0.05
 
 const MESSAGE_NO_MISSION := "No mission selected."
 const MESSAGE_READY := "Ready to launch."
+const MESSAGE_LAUNCHED := "The flight has started. The rocket and the plan can no longer change."
 const HINT_ZOOM := "Click a monitor to open it."
 
 ## The screen shown now, or the one a running zoom is moving to.
@@ -95,6 +96,8 @@ func _ready() -> void:
 	add_child(_input_blocker)
 
 	GameState.derived_changed.connect(_refresh)
+	# Launching changes no summary, so it sends no derived_changed of its own.
+	GameState.launch_requested.connect(_refresh)
 	_refresh()
 
 
@@ -119,11 +122,19 @@ func zoom_back_to_overview() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not is_visible_in_tree() or current_screen == Screen.OVERVIEW:
+	if current_screen == Screen.OVERVIEW or not is_on_screen():
 		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		zoom_back_to_overview()
+
+
+## False while the console shell shows the EXECUTION half: Console slides this
+## scene out of the window but never hides it, so visibility alone cannot tell.
+func is_on_screen() -> bool:
+	if not is_visible_in_tree():
+		return false
+	return get_global_rect().intersects(get_viewport_rect())
 
 
 func _zoom_into(target_screen: Screen) -> void:
@@ -302,7 +313,7 @@ func _create_detail_holder(detail_screen: Control, chip_rects: Array[Rect2], dra
 
 
 func _on_build_example_rocket_pressed() -> void:
-	if GameState.mission.is_empty():
+	if GameState.mission.is_empty() or GameState.has_launched:
 		return
 	ExampleFlight.fill_reference_flight(GameState.design, GameState.plan, GameState.mission)
 	GameState.notify_design_changed()
@@ -310,6 +321,9 @@ func _on_build_example_rocket_pressed() -> void:
 
 
 func _on_launch_pressed() -> void:
+	# One flight per game: a second launch would restart the flight in the air.
+	if GameState.has_launched:
+		return
 	GameState.request_launch()
 
 
@@ -328,13 +342,18 @@ func _refresh() -> void:
 	# The Launch button is disabled only when the rocket cannot fly at all.
 	# Going over budget is allowed; it costs score points instead.
 	# Advice ("Warning: ...") is shown but does not block it.
+	# After the launch it is disabled too, because the flight is already running.
 	var blocking_problems: Array[String] = summary.blocking_problems
-	launch_button.disabled = not blocking_problems.is_empty()
-	if blocking_problems.is_empty():
+	launch_button.disabled = GameState.has_launched or not blocking_problems.is_empty()
+	if GameState.has_launched:
+		launch_button.tooltip_text = MESSAGE_LAUNCHED
+		_message_label.text = MESSAGE_LAUNCHED
+	elif blocking_problems.is_empty():
 		launch_button.tooltip_text = "Start the flight"
+		_message_label.text = _message_text(summary)
 	else:
 		launch_button.tooltip_text = "Cannot launch: " + " ".join(PackedStringArray(blocking_problems))
-	_message_label.text = _message_text(summary)
+		_message_label.text = _message_text(summary)
 
 	# The overview monitor is small, so it uses a smaller scale than the mission's own.
 	var overview_display := {"display": {

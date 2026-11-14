@@ -8,6 +8,7 @@ const LIQUID_ENGINE_PART_ID := "engine_liquid_small"
 const SECOND_LIQUID_ENGINE_PART_ID := "engine_liquid_basic"
 const SOLID_ENGINE_PART_ID := "engine_solid_kick"
 const TANK_PART_ID := "tank_aluminium_blowdown"
+const SECOND_TANK_PART_ID := "tank_composite_blowdown"
 const SCIENCE_PART_ID := "science_camera_basic"
 const TELEMETRY_PART_ID := "telemetry_altimeter_basic"
 const COSTLY_PART_ID := "t06_test_costly_instrument"
@@ -80,6 +81,7 @@ func _select_first_mission() -> void:
 	var no_side_quest_ids: Array[String] = []
 	GameState.design = RocketDesign.new()
 	GameState.plan = MissionPlan.new()
+	GameState.has_launched = false
 	GameState.select_mission(first_mission["id"], first_science_mission_id, no_side_quest_ids)
 
 
@@ -274,6 +276,17 @@ func _check_tank_rules(report: TestReport) -> void:
 	report.check(
 			upper_liquid_stage.tank_part_id == TANK_PART_ID,
 			"with no selection a tank goes to the highest liquid stage without one")
+
+	# Every liquid stage has a tank now and none is selected: the same state
+	# as right after "Build example rocket".
+	screen.selected_stage_id = 0
+	_press_card(screen, GameData.CATEGORY_TANK, SECOND_TANK_PART_ID)
+	report.check(
+			upper_liquid_stage.tank_part_id == SECOND_TANK_PART_ID and lower_liquid_stage.tank_part_id == TANK_PART_ID,
+			"when every liquid stage has a tank, a new tank replaces the one of the highest liquid stage")
+	report.check(
+			not screen._hint_label.text.contains("needs a liquid engine"),
+			"replacing a tank does not claim that a liquid engine is missing")
 	screen.free()
 
 
@@ -295,8 +308,12 @@ func _check_launch_button_and_chips(report: TestReport) -> void:
 	# stages; that is the tick box of the orbit planning screen (T05).
 	report.check(GameState.plan.launch_stage_ids.is_empty(), "building a stage does not choose launch stages")
 	report.check(
-			launch_button.disabled == (not GameState.summary.blocking_problems.is_empty()),
-			"Launch follows blocking_problems after a stage is built")
+			GameState.summary.blocking_problems.has("No stage fires at launch."),
+			"fixture: a built stage without launch stages is a blocking problem")
+	report.check(launch_button.disabled, "Launch stays disabled until a stage fires at launch")
+	report.check(
+			launch_button.tooltip_text.contains("No stage fires at launch."),
+			"the disabled Launch button names the missing launch stage")
 
 	console._on_build_example_rocket_pressed()
 	report.check(GameState.summary.blocking_problems.is_empty(), "fixture: the example rocket has no blocking problem")
@@ -310,11 +327,15 @@ func _check_launch_button_and_chips(report: TestReport) -> void:
 			"the delta-v chip shows the total delta-v of the summary")
 
 	# A warning that is only advice must not block the launch.
-	var has_advice := false
-	for warning in GameState.summary.warnings:
-		has_advice = has_advice or warning.begins_with(RocketModel.WARNING_PREFIX)
-	if has_advice:
-		report.check(not launch_button.disabled, "advice in warnings does not disable Launch")
+	# The example rocket earns no advice, so one sentence is added to the
+	# summary by hand and the console is asked to redraw from it.
+	var advice_sentence: String = RocketModel.WARNING_PREFIX + " test advice that must not block."
+	GameState.summary.warnings.append(advice_sentence)
+	console._refresh()
+	report.check(not launch_button.disabled, "advice in warnings does not disable Launch")
+	report.check(console._message_label.text.contains(advice_sentence), "advice in warnings is still shown")
+	GameState.summary.warnings.erase(advice_sentence)
+	console._refresh()
 
 	var previous_costly_part: Dictionary = GameData.part(COSTLY_PART_ID)
 	GameData.register_part({
@@ -355,8 +376,35 @@ func _check_launch_button_and_chips(report: TestReport) -> void:
 	var count_launch_requested := func() -> void: launch_requested_count[0] += 1
 	GameState.launch_requested.connect(count_launch_requested)
 	launch_button.pressed.emit()
-	GameState.launch_requested.disconnect(count_launch_requested)
 	report.check(launch_requested_count[0] == 1, "pressing Launch calls GameState.request_launch")
+
+	# After the launch the flight is running: no second launch, no new design.
+	report.check(launch_button.disabled, "Launch is disabled once the flight has started")
+	report.check(console._message_label.text.contains("flight has started"), "the console says that the flight has started")
+	launch_button.pressed.emit()
+	report.check(launch_requested_count[0] == 1, "a second press of Launch does not start a second flight")
+	GameState.launch_requested.disconnect(count_launch_requested)
+
+	var cost_at_launch_million_usd: float = GameState.summary.cost_million_usd
+	var stage_count_at_launch: int = GameState.design.stages.size()
+	var payload_count_at_launch: int = GameState.design.payload_part_ids.size()
+	_press_card(rocket_design_screen, GameData.CATEGORY_ENGINE, LIQUID_ENGINE_PART_ID)
+	_press_card(rocket_design_screen, GameData.CATEGORY_SCIENCE, SCIENCE_PART_ID)
+	rocket_design_screen.remove_payload_part(0)
+	rocket_design_screen.remove_tank(GameState.design.stages[0].stage_id)
+	rocket_design_screen.remove_stage(GameState.design.stages[0].stage_id)
+	console._on_build_example_rocket_pressed()
+	report.check(
+			GameState.design.stages.size() == stage_count_at_launch
+			and GameState.design.payload_part_ids.size() == payload_count_at_launch
+			and not GameState.design.stages[0].tank_part_id.is_empty(),
+			"the design cannot change after the launch")
+	report.check_close(
+			GameState.summary.cost_million_usd, cost_at_launch_million_usd, 0.000001,
+			"the cost that is scored stays the cost at launch")
+	report.check(
+			rocket_design_screen._hint_label.text.contains("has launched"),
+			"the rocket design screen says why nothing changes")
 	console.free()
 
 
@@ -393,6 +441,20 @@ func _check_zoom(report: TestReport) -> void:
 	cancel_event.pressed = true
 	console._unhandled_input(cancel_event)
 	report.check(console.current_screen == screen_type["OVERVIEW"], "Esc returns to the overview")
+
+	# Console slides the planning half out of the window to show the
+	# execution half. Esc must then be left alone.
+	console.zoom_into_orbit_planning()
+	console.position.x = -ScreenLayout.SCREEN_SIZE.x
+	report.check(not console.is_on_screen(), "the planning half knows when it has been slid out of the window")
+	console._unhandled_input(cancel_event)
+	report.check(
+			console.current_screen == screen_type["ORBIT_PLANNING"],
+			"Esc does nothing while the execution half is on screen")
+	console.position.x = 0.0
+	report.check(console.is_on_screen(), "the planning half knows when it is back in the window")
+	console._unhandled_input(cancel_event)
+	report.check(console.current_screen == screen_type["OVERVIEW"], "Esc works again after sliding back")
 
 	var full_screen_rect := Rect2(Vector2.ZERO, ScreenLayout.SCREEN_SIZE)
 	for chip_rect in console.ROCKET_DESIGN_STAT_CHIP_RECTS:

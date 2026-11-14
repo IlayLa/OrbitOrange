@@ -32,6 +32,7 @@ const POPUP_GAP_PIXELS := 4.0
 const HINT_DEFAULT := "Click a card to add the part.\nClick a part in the rocket to remove it."
 const HINT_NO_LIQUID_STAGE := "A tank needs a liquid engine.\nAdd a liquid engine under ENG first."
 const HINT_NO_MISSION := "No mission selected."
+const HINT_LAUNCHED := "The rocket has launched.\nIts design can no longer change."
 
 ## The category whose cards are listed now.
 var shown_category: String = GameData.CATEGORY_ENGINE
@@ -78,6 +79,7 @@ func _ready() -> void:
 	add_child(_details_popup)
 
 	GameState.derived_changed.connect(_refresh)
+	GameState.launch_requested.connect(_on_launch_requested)
 	show_category(shown_category)
 	_refresh()
 
@@ -114,10 +116,13 @@ func find_part_card(part_id: String) -> PartCard:
 
 ## Adds the part to GameState.design, by its category:
 ##   engine               a new stage on top of the stack
-##   tank                 the tank of the selected liquid stage, or of the
-##                        highest liquid stage that has none
+##   tank                 the tank of the selected liquid stage; see
+##                        _stage_for_new_tank for the choice without a selection
 ##   telemetry, science   one more payload part
+## Does nothing once the rocket has launched.
 func install_part(part_id: String) -> void:
+	if _is_design_locked():
+		return
 	var part: Dictionary = GameData.part(part_id)
 	if part.is_empty():
 		return
@@ -148,6 +153,8 @@ func install_part(part_id: String) -> void:
 ## Removes the stage from the design, and also from the plan: its id leaves
 ## the launch stages, and every pulse that fires it is deleted.
 func remove_stage(stage_id: int) -> void:
+	if _is_design_locked():
+		return
 	var design: RocketDesign = GameState.design
 	if design.find_stage(stage_id) == null:
 		return
@@ -172,6 +179,8 @@ func remove_stage(stage_id: int) -> void:
 
 ## Takes the tank off a liquid stage. The stage and its engine stay.
 func remove_tank(stage_id: int) -> void:
+	if _is_design_locked():
+		return
 	var stage: Stage = GameState.design.find_stage(stage_id)
 	if stage == null:
 		return
@@ -183,6 +192,8 @@ func remove_tank(stage_id: int) -> void:
 
 ## Removes one payload part, by its index in RocketDesign.payload_part_ids.
 func remove_payload_part(payload_index: int) -> void:
+	if _is_design_locked():
+		return
 	var payload_part_ids: Array[String] = GameState.design.payload_part_ids
 	if payload_index < 0 or payload_index >= payload_part_ids.size():
 		return
@@ -201,6 +212,16 @@ func select_stage(stage_id: int) -> void:
 	_refresh()
 
 
+## True once the player has launched: the rocket that flies, and the cost that
+## is scored, must stay the one that was launched. Shows the reason as the hint.
+func _is_design_locked() -> bool:
+	if not GameState.has_launched:
+		return false
+	_hint_text = HINT_LAUNCHED
+	_refresh()
+	return true
+
+
 func _notify_design_changed() -> void:
 	GameState.notify_design_changed()
 	# Without a mission GameState recomputes nothing and sends no signal.
@@ -208,20 +229,26 @@ func _notify_design_changed() -> void:
 		_refresh()
 
 
-## The selected liquid stage; otherwise the highest liquid stage without a
-## tank; otherwise null.
+## The stage that receives a new tank:
+##   1. the selected liquid stage;
+##   2. otherwise the highest liquid stage that has no tank yet;
+##   3. otherwise the highest liquid stage, whose tank is then replaced.
+## Null only when the rocket has no liquid stage at all.
 func _stage_for_new_tank() -> Stage:
 	var design: RocketDesign = GameState.design
 	var selected_stage: Stage = design.find_stage(selected_stage_id)
 	if selected_stage != null and not RocketStackPreview.is_solid_engine(selected_stage.engine_part_id):
 		return selected_stage
+	var highest_liquid_stage: Stage = null
 	for stage_index in range(design.stages.size() - 1, -1, -1):
 		var candidate_stage: Stage = design.stages[stage_index]
 		if RocketStackPreview.is_solid_engine(candidate_stage.engine_part_id):
 			continue
 		if candidate_stage.tank_part_id.is_empty():
 			return candidate_stage
-	return null
+		if highest_liquid_stage == null:
+			highest_liquid_stage = candidate_stage
+	return highest_liquid_stage
 
 
 func _refresh() -> void:
@@ -313,6 +340,11 @@ func _on_card_hovered(part_id: String, card: PartCard) -> void:
 			list_rect.position.x - PartDetailsPopup.POPUP_WIDTH_PIXELS - POPUP_GAP_PIXELS,
 			card_top_pixels)
 	_details_popup.show_part(GameData.part(part_id), GameState.science_mission_id, wanted_position)
+
+
+func _on_launch_requested() -> void:
+	_hint_text = HINT_LAUNCHED
+	_refresh()
 
 
 func _on_card_unhovered() -> void:
