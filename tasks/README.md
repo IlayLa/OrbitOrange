@@ -9,7 +9,7 @@ The game is split into eight tasks for four agents on four PCs. Each agent takes
 | C · Flight | [T03 Flight simulation](T03-flight-simulation.md) | [T07 Events and emergency maneuver](T07-events-and-emergency-maneuver.md) |
 | D · Mission | [T04 Missions, scoring, final screen](T04-missions-scoring-final-screen.md) | [T08 Execution console](T08-execution-console.md) |
 
-Wave 2 starts when all four wave 1 branches are merged into `main`.
+[T09 Integration after wave 1](T09-integration-after-wave-1.md): the integrator's pass between the waves (end-to-end flight test, shared fixes, contracts up to date). Wave 2 starts when all four wave 1 branches and T09 are merged into `main`.
 
 ## What every agent reads first
 1. [CONTRACTS.md](CONTRACTS.md): names, units, file ownership, what each module offers.

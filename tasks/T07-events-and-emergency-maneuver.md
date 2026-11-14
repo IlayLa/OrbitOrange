@@ -43,6 +43,11 @@ Design reference: `context/plan_draft.md`, section "Random events during EXECUTI
 10. **No score effect.** Events give no points and take none directly.
 11. **Data.** Fill `data/event_types.json` with the seven event types of the design, and `hazard_zones` and `hazard_rates` for every mission. Realism is expressed through the rates: conjunctions and debris likely in low orbit, asteroids very unlikely. Mark the rates as placeholders unless you cite a source for them.
 
+## Rules from the integration pass (T09)
+- **Hazard-near alarm.** `FlightSimulation` raises the `HAZARD_NEAR` alarm lamp whenever a threat is within 10 km (`HAZARD_RANGE_METERS`), even without a radar. Your threat alert (requirement 4) is separate and still depends on detection.
+- **Onboard-computer parts.** Telemetry parts with `channel` `"computer"` have no effect in flight until your solar flare uses them. Decide what they do and write it in your notes.
+- **Emergency pulse and planned pulses.** An emergency pulse rebuilds the trajectory from the craft's new state, so the `extra_revolutions` of the planned pulses after it are counted again from that point: it restarts their revolution count.
+
 ## Out of scope
 Telemetry, the radar panel and the alarm lamp (T03 and T08). Scoring (T04).
 

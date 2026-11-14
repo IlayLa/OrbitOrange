@@ -31,7 +31,7 @@ function Invoke-CheckStep {
     $StepOutput = @(Get-Content $OutputFile) + @(Get-Content $ErrorFile)
     Remove-Item $OutputFile, $ErrorFile
 
-    $HasErrorLine = [bool]($StepOutput | Where-Object { $_ -match "ERROR" })
+    $HasErrorLine = [bool]($StepOutput | Where-Object { $_ -cmatch "ERROR" })
     if ($GodotProcess.ExitCode -ne 0 -or $HasErrorLine) {
         Write-Output "FAILED  $StepName"
         $StepOutput | Where-Object { $_ -ne "" } | ForEach-Object { Write-Output "        $_" }

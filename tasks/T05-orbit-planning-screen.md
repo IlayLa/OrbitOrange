@@ -22,10 +22,15 @@ Build the screen where the player plans the flight: set the launch, place pulses
 ## What you consume
 | From | What |
 |---|---|
-| T01 | `OrbitModel.sample_segment_points`, `sample_full_orbit_points`, `Kepler.elements_from_state`, `Kepler.seconds_until_polar_angle` |
+| T01 | `OrbitModel.sample_segment_points`, `sample_full_orbit_points`, `Kepler.elements_from_state`, `Kepler.seconds_until_polar_angle`, `Kepler.seconds_until_impact` |
 | T02 | `GameState.summary` (a `PlanSummary`): delta-v left per stage, which pulses are affordable |
 | Integrator | `GameState.plan`, `GameState.design`, `GameState.trajectory`, `GameState.notify_plan_changed()`, `ScreenLayout` |
 | T06 (same wave) | T06 draws the three stat chips and the back button over your screen. Leave `ScreenLayout.ORBIT_PLANNING_STAT_CHIP_SCREENS`, `BACK_BUTTON_RECT` and `CONSOLE_SWITCH_RECT` empty. |
+
+Three orbit points you need (from T01, now in `CONTRACTS.md`):
+- **Clockwise orbits.** ω and ν are measured along the motion. With `s = +1` counter-clockwise and `s = −1` clockwise, the craft's polar angle is `s·(ω + ν)`, the periapsis direction is `s·ω` and the apoapsis direction is `s·ω + π`. Use this to place the apoapsis and periapsis markers and the readouts.
+- **A pulse at the current angle fires at once.** A pulse whose polar angle is within 10⁻⁹ rad of the craft's current direction fires immediately, so two pulses placed at one point fire together.
+- **`Kepler.seconds_until_polar_angle` cannot see the ground.** It returns INF only for open orbits and radial paths. To know whether a clicked point is reached before an impact, compare it with `Kepler.seconds_until_impact`, or read `trajectory.status` and `first_unreachable_pulse_index`, which `OrbitModel.build_trajectory` already sets that way.
 
 You never compute an orbit or a mass yourself. Change `GameState.plan`, call `GameState.notify_plan_changed()`, and redraw from `GameState.trajectory` and `GameState.summary` when `derived_changed` arrives.
 

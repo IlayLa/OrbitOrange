@@ -212,7 +212,19 @@ func _check_data_and_screens(report: TestReport) -> void:
 	screen._on_mission_chosen(GameData.all_missions()[1])
 	for child in screen._details_contents.get_children():
 		if child is CheckBox and child.text == "Space weather":
+			report.check(not child.disabled, "space weather is available now that instruments are rated for it")
+	# The same screen with no instrument rated for space weather (T09 changed this check:
+	# the catalogue now rates two science parts for it, so the old fixture is made here).
+	var saved_space_weather_ratings: Dictionary = {}
+	for science_part: Dictionary in GameData.parts_in_category(GameData.CATEGORY_SCIENCE):
+		saved_space_weather_ratings[science_part["id"]] = science_part["mission_fit"].get("space_weather", 0)
+		science_part["mission_fit"]["space_weather"] = 0
+	screen._on_mission_chosen(GameData.all_missions()[1])
+	for child in screen._details_contents.get_children():
+		if child is CheckBox and child.text == "Space weather":
 			report.check(child.disabled, "unsupported science is visible and unavailable")
+	for science_part: Dictionary in GameData.parts_in_category(GameData.CATEGORY_SCIENCE):
+		science_part["mission_fit"]["space_weather"] = saved_space_weather_ratings[science_part["id"]]
 	report.check(screen._chosen_science_id.is_empty() and screen._chosen_quest_ids.is_empty() and screen._accept_button.disabled, "changing mission clears dependent choices")
 	report.check(GameState.mission.is_empty(), "selection preview does not commit game state")
 	screen.free()

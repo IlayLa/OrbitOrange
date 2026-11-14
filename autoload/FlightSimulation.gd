@@ -15,7 +15,6 @@ signal flight_ended(result: FlightResult)
 const SIMULATION_STEP_SECONDS := 5.0
 const ALLOWED_TIME_SCALES: Array[float] = [0.0, 1.0, 10.0, 100.0, 1000.0]
 const PULSE_SLOWDOWN_LEAD_SECONDS := 2.0 * SIMULATION_STEP_SECONDS
-const ESCAPE_BODY_RADII := 20.0
 const LOW_FUEL_FRACTION := 0.1
 const AMBIENT_TEMPERATURE_KELVIN := 300.0
 const OVER_TEMPERATURE_KELVIN := 350.0
@@ -59,7 +58,6 @@ var _mission_duration_seconds: float = 0.0
 var _next_step_time_seconds: float = SIMULATION_STEP_SECONDS
 var _seconds_not_yet_simulated: float = 0.0
 var _has_reached_stable_orbit: bool = false
-var _initial_propellant_kilograms: float = 0.0
 var _data_generated_megabits: float = 0.0
 var _data_delivered_megabits: float = 0.0
 var _science_inner_radius_meters: float = INF
@@ -91,7 +89,6 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	_pulse_readout_ends_at_seconds = 0.0
 	_temperature_kelvin = AMBIENT_TEMPERATURE_KELVIN
 	_has_reached_stable_orbit = false
-	_initial_propellant_kilograms = _fuel_kilograms()
 	threats = []
 	event_log = []
 	simulation_time_seconds = 0.0
@@ -431,12 +428,12 @@ func _physical_end_reason() -> int:
 
 func _has_escaped(state: OrbitState) -> bool:
 	return (_coast_segment.elements != null and _coast_segment.elements.is_open
-			and state.radius_meters() >= ESCAPE_BODY_RADII * float(_body["radius_meters"]) - 1.0e-6)
+			and state.radius_meters() >= OrbitModel.escape_radius_meters(_body) - 1.0e-6)
 
 
 func _is_stable_orbit(elements: OrbitElements) -> bool:
-	return (elements != null and not elements.is_open and elements.periapsis_radius_meters
-			> float(_body["radius_meters"]) + float(_body.get("atmosphere_height_meters", 0.0)))
+	return (elements != null and not elements.is_open
+			and elements.periapsis_radius_meters > OrbitModel.impact_radius_meters(_body))
 
 
 func _gravitational_parameter() -> float:
@@ -449,6 +446,17 @@ func _fuel_kilograms() -> float:
 		if not vehicle_state.is_jettisoned_by_stage.get(stage_id, true):
 			fuel_kilograms += vehicle_state.propellant_kilograms_by_stage[stage_id]
 	return fuel_kilograms
+
+
+## Full propellant capacity of the stages not yet dropped, in kilograms. The
+## low-fuel alarm compares the propellant on board with this, so it does not
+## stay on after a stage separation.
+func _attached_propellant_capacity_kilograms() -> float:
+	var capacity_kilograms := 0.0
+	for stage in vehicle_state.design.stages:
+		if not vehicle_state.is_jettisoned_by_stage.get(stage.stage_id, true):
+			capacity_kilograms += RocketModel.full_propellant_kilograms(stage)
+	return capacity_kilograms
 
 
 func _remaining_delta_v_meters_per_second() -> float:
@@ -504,7 +512,8 @@ func _create_telemetry_frame() -> TelemetryFrame:
 	acceleration.is_sensor_working = true
 	acceleration.value = _acceleration_meters_per_second_squared()
 	frame.readings_by_channel[TelemetryFrame.CHANNEL_ACCELERATION_METERS_PER_SECOND_SQUARED] = acceleration
-	if _initial_propellant_kilograms > 0.0 and _fuel_kilograms() <= _initial_propellant_kilograms * LOW_FUEL_FRACTION:
+	var attached_capacity_kilograms := _attached_propellant_capacity_kilograms()
+	if attached_capacity_kilograms > 0.0 and _fuel_kilograms() <= attached_capacity_kilograms * LOW_FUEL_FRACTION:
 		frame.active_alarms.append("LOW_FUEL")
 	if _temperature_kelvin >= OVER_TEMPERATURE_KELVIN:
 		frame.active_alarms.append("OVER_TEMPERATURE")
@@ -533,7 +542,9 @@ func _configure_science(mission: Dictionary) -> void:
 		break
 	for part_id in vehicle_state.design.payload_part_ids:
 		var part: Dictionary = GameData.part(part_id)
-		if part.get("category", "") == "science":
+		var mission_fit: Dictionary = part.get("mission_fit", {})
+		var fit_rating: float = float(mission_fit.get(chosen_science_id, 0.0))
+		if part.get("category", "") == "science" and fit_rating > 0.0:
 			var rate: float = part["stats"].get("data_rate_megabits_per_second", 0.0)
 			_science_rates_by_instrument[part_id] = _science_rates_by_instrument.get(part_id, 0.0) + rate
 

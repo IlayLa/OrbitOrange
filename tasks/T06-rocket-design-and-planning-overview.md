@@ -21,7 +21,7 @@ Build the PLANNING half of the console: the overview with its two monitors, the 
 ## What you consume
 | From | What |
 |---|---|
-| T02 | `GameData.parts_in_category`, `GameData.part`; `GameState.summary` (cost, masses, total delta-v, warnings) |
+| T02 | `GameData.parts_in_category`, `GameData.part`; `GameState.summary` (cost, masses, total delta-v, `warnings`, `blocking_problems`) |
 | T04 | `Scoring.budget_points(cost, budget)` for the projected budget penalty; `GameState.science_mission()` for mission-fit stars |
 | T05 (same wave) | `scenes/planning/OrbitPlanning.tscn` as the zoomed orbit screen, and `OrbitView` for the overview monitor. Until T05 is merged both are minimal stubs with the same interface. |
 | Integrator | `GameState.design`, `GameState.notify_design_changed()`, `GameState.request_launch()`, `ScreenLayout` |
@@ -34,7 +34,7 @@ Design reference: `context/plan_draft.md`, sections "PLANNING half", "Zoom LEFT:
 1. **Overview.** Background mock-up. A small rocket preview in `OVERVIEW_ROCKET_MONITOR_SCREEN`. An `OrbitView` in `OVERVIEW_ORBIT_MONITOR_SCREEN` showing `GameState.trajectory`. Clicking a monitor zooms into its detail screen.
 2. **Zoom.** An animated move from the monitor to the full-screen detail scene and back. While zoomed, show a back button in `ScreenLayout.BACK_BUTTON_RECT`; Esc also goes back.
 3. **Stat chips** on all three planning screens: cost against budget, total delta-v, and weight (total and empty). In the overview they sit in `OVERVIEW_STAT_CHIP_SCREENS`; on the orbit screen in `ORBIT_PLANNING_STAT_CHIP_SCREENS`; on the rocket design screen wherever fits the mock-up. The weight chip has no limit. The cost chip turns red over budget and shows the projected penalty from `Scoring.budget_points`.
-4. **Launch button** in `OVERVIEW_TOP_BEZEL`. Disabled, with the reason shown, only when `summary.warnings` reports that the rocket cannot fly. Going over budget does not disable it. Pressing it calls `GameState.request_launch()`.
+4. **Launch button** in `OVERVIEW_TOP_BEZEL`. Disabled, with the reason shown, only when `summary.blocking_problems` is not empty. Show `summary.warnings` too, but advice in it (sentences starting with `"Warning:"`) does not block, and neither does going over budget. Pressing it calls `GameState.request_launch()`.
 5. **Rocket design screen.**
    - Four category tabs in `ROCKET_DESIGN_CATEGORY_TABS`, labelled ENG, MAT, TEL, SCI for the categories `engine`, `tank`, `telemetry`, `science`.
    - Part cards in `ROCKET_DESIGN_PART_LIST` (scrolling): icon, name, cost, and the one number that matters most for that category.

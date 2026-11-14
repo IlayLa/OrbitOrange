@@ -22,7 +22,7 @@ One owner per file. You may create and edit only the files your task file lists.
 |---|---|---|
 | Project settings | `project.godot` | Integrator |
 | Shared types | `scripts/core/types/*.gd` | Integrator |
-| Plan glue, layout, test helper | `scripts/core/PlanResolver.gd`, `ScreenLayout.gd`, `TestReport.gd` | Integrator |
+| Plan glue, layout, test helper, worked example | `scripts/core/PlanResolver.gd`, `ScreenLayout.gd`, `TestReport.gd`, `ExampleFlight.gd` | Integrator |
 | Catalogue loader | `autoload/GameData.gd` | Integrator |
 | Game state | `autoload/GameState.gd` | Integrator |
 | Menu and console shell | `scripts/screens/*.gd`, `scenes/MainMenu.tscn`, `scenes/Console.tscn` | Integrator |
@@ -75,7 +75,7 @@ All in `scripts/core/types/`. Open the file for the fields and their meaning.
 | `Pulse`, `MissionPlan` | what the player planned | T05 screen |
 | `VehicleState` | the rocket right now: propellant left, dropped stages, broken parts | `RocketModel` |
 | `BurnOutcome` | what one engine firing really did | `RocketModel` |
-| `PlanSummary` | cost, masses and delta-v per pulse and per stage | `RocketModel` |
+| `PlanSummary` | cost, masses and delta-v per pulse and per stage; `warnings` and `blocking_problems` | `RocketModel` |
 | `ResolvedBurn`, `ResolvedPlan` | a pulse after mass bookkeeping; summary + trajectory | `PlanResolver` |
 | `TrajectorySegment`, `Trajectory` | the predicted flight path | `OrbitModel` |
 | `Threat` | another object that may hit the craft | `EventDirector` |
@@ -88,14 +88,15 @@ Exact signatures and comments are in the file. A body marked `STUB(T0N)` is a pl
 
 | File | Functions and signals |
 |---|---|
-| `scripts/orbit/Kepler.gd` | `circular_speed_meters_per_second`, `orbital_period_seconds`, `altitude_meters`, `flight_path_angle_radians`, `signed_angular_momentum`, `elements_from_state`, `state_from_elements`, `propagate`, `apply_pulse`, `launch_state`, `seconds_until_polar_angle`, `fraction_of_period_inside_band` |
-| `scripts/orbit/OrbitModel.gd` | `build_trajectory`, `build_trajectory_from_state`, `state_at_time`, `sample_segment_points`, `sample_full_orbit_points` |
+| `scripts/orbit/Kepler.gd` | `circular_speed_meters_per_second`, `orbital_period_seconds`, `altitude_meters`, `flight_path_angle_radians`, `signed_angular_momentum`, `elements_from_state`, `state_from_elements`, `propagate`, `apply_pulse`, `launch_state`, `seconds_until_polar_angle`, `seconds_until_impact`, `seconds_until_escape`, `fraction_of_period_inside_band` |
+| `scripts/orbit/OrbitModel.gd` | `build_trajectory`, `build_trajectory_from_state`, `state_at_time`, `sample_segment_points`, `sample_full_orbit_points`, `impact_radius_meters`, `escape_radius_meters` |
 | `scripts/rocket/RocketModel.gd` | `delta_v_from_rocket_equation`, `propellant_needed_for_delta_v`, `total_cost_million_usd`, `all_part_ids`, `full_propellant_kilograms`, `create_vehicle_state`, `total_mass_kilograms`, `available_delta_v_meters_per_second`, `apply_burn`, `summarize_plan`, `validate_design` |
 | `scripts/core/PlanResolver.gd` | `resolve(design, plan, mission) -> ResolvedPlan` |
 | `autoload/GameData.gd` | `part`, `parts_in_category`, `all_missions`, `mission`, `body`, `all_event_types`, `event_type`, `register_part` |
 | `autoload/GameState.gd` | fields `mission`, `science_mission_id`, `side_quest_ids`, `budget_million_usd`, `design`, `plan`, `summary`, `trajectory`, `has_launched`, `flight_result`, `score`, `random_seed`; functions `start_new_game`, `select_mission`, `science_mission`, `accepted_side_quests`, `notify_design_changed`, `notify_plan_changed`, `request_launch`, `finish_flight`, `go_to_scene`; signals `mission_changed`, `derived_changed`, `launch_requested`, `flight_finished` |
-| `autoload/FlightSimulation.gd` | fields `is_flying`, `time_scale`, `simulation_time_seconds`, `craft_state`, `vehicle_state`, `trajectory`, `threats`, `event_log`; functions `start_flight`, `set_time_scale`, `pause`, `apply_emergency_pulse`, `add_threat`, `remove_threat`, `log_event`, `raise_alert`, `end_flight`; signals `simulation_step`, `telemetry_updated`, `pulse_fired`, `alert_raised`, `flight_started`, `flight_ended` |
+| `autoload/FlightSimulation.gd` | fields `is_flying`, `time_scale`, `simulation_time_seconds`, `craft_state`, `vehicle_state`, `trajectory`, `threats`, `event_log`; functions `start_flight`, `set_time_scale`, `pause`, `advance_simulation`, `apply_emergency_pulse`, `add_threat`, `remove_threat`, `log_event`, `raise_alert`, `end_flight`; signals `simulation_step`, `telemetry_updated`, `pulse_fired`, `alert_raised`, `flight_started`, `flight_ended` |
 | `scripts/mission/Scoring.gd` | `compute_score`, `budget_points`, `band_name_for_points` |
+| `scripts/core/ExampleFlight.gd` | `fill_reference_flight`, `fill_reference_rocket`, `find_launch_angle_radians`, `launch_apoapsis_radius_meters`, `create_circularizing_pulse`: the reference rocket that reaches orbit, with the launch angle and the pulse that circularise it for a mission (static; used by "Build example rocket" and by `tests/test_integration.gd`) |
 | `scripts/orbit/OrbitView.gd` | `configure`, `show_trajectory`, `show_craft`, `show_threats`, `world_to_screen`, `screen_to_polar_angle_radians`, `screen_to_radius_meters` |
 | `scripts/core/ScreenLayout.gd` | screen size, mock-up rectangles and colours (constants) |
 
@@ -112,7 +113,7 @@ From the GMAT Mathematical Specifications (NASA GSFC draft), section 4.1.2, Tabl
 | Eccentricity ≥ 10⁻¹¹ | angle from +x to the eccentricity vector | angle from the eccentricity vector to the position; add the quadrant fix when the craft is moving inward |
 | Eccentricity < 10⁻¹¹ | 0 | angle from +x to the position |
 
-- A clockwise orbit sets `is_clockwise`; its angles are mirrored.
+- A clockwise orbit sets `is_clockwise`. Its angles are measured along the motion, as in GMAT's inverse conversion with inclination 180°: with `s = +1` for a counter-clockwise orbit and `s = −1` for a clockwise one, the polar angle of the craft is `s·(ω + ν)`, the periapsis direction is `s·ω` and the apoapsis direction is `s·ω + π` (ω = `argument_of_periapsis_radians`, ν = `true_anomaly_radians`). Example: periapsis drawn at 30° with clockwise motion gives ω = 330°.
 - An orbit is **open** when its specific energy is zero or positive. Open orbits have `is_open` set, a negative semi-major axis, and `INF` for period and apoapsis.
 - `OrbitState` is the truth. Elements are always computed from it.
 
@@ -120,7 +121,9 @@ From the GMAT Mathematical Specifications (NASA GSFC draft), section 4.1.2, Tabl
 - A pulse fires at the first moment after the previous burn when the craft crosses the direction `polar_angle_radians`, after `extra_revolutions` full orbits. The order of `MissionPlan.pulses` is the firing order.
 - `delta_v_along_velocity_meters_per_second` points along the motion. `delta_v_outward_meters_per_second` is perpendicular to it, pointing away from the central body (GMAT's V and B directions).
 - A pulse with `fires_immediately` set ignores the angle and fires at the current position. Only emergency pulses use it.
+- A pulse whose `polar_angle_radians` is within 10⁻⁹ rad of the craft's current direction fires at once, so two pulses placed at one point (staging) fire together.
 - When the craft never reaches the angle (impact or escape first), the trajectory status is `UNREACHABLE_PULSE`.
+- `Kepler.seconds_until_polar_angle` has no body, so it cannot see the ground: it returns INF only for open orbits and radial paths, never for an impact. Compare its result with `Kepler.seconds_until_impact` (and `seconds_until_escape`), as `OrbitModel.build_trajectory` does.
 
 ### Rocket rules (T02)
 - `RocketDesign.stages[0]` is the bottom stage and fires first.
@@ -129,6 +132,7 @@ From the GMAT Mathematical Specifications (NASA GSFC draft), section 4.1.2, Tabl
 - Launch stages (`MissionPlan.launch_stage_ids`) burn completely. Their velocity change minus the mission's `launch_loss_meters_per_second` is the burnout speed.
 - A solid motor fires once and burns everything: the pulse gives only the direction.
 - A liquid engine delivers the requested velocity change, or as much as its propellant allows (`is_pulse_affordable` is then false).
+- `PlanSummary.blocking_problems` holds the sentences of `PlanSummary.warnings` that stop a launch. Launch is disabled when it is not empty. Advice in `warnings` starts with `"Warning:"` (`RocketModel.WARNING_PREFIX`) and does not block; nothing decides by that text.
 
 ### Display mapping (T05)
 Altitude is exaggerated so low orbits are visible. A point at true distance `radius_meters` from the body's centre is drawn, in the same direction, at
