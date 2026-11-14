@@ -2,9 +2,9 @@
 	{
 		"id": "earth",
 		"name": "Earth",
-		"gravitational_parameter_cubic_meters_per_second_squared": 3.986004418e14,
+		"gravitational_parameter_cubic_meters_per_second_squared": 398600441800000.0,
 		"radius_meters": 6371000,
 		"atmosphere_height_meters": 100000,
-		"source": "Standard published values for Earth; to be cited in docs/references by task T04."
+		"source": "Mean radius: NASA Earth Fact Sheet, https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html; gravitational parameter: NGA WGS 84 defining parameters, https://earth-info.nga.mil/?action=wgs84&dir=wgs84; atmosphere height: 100 km gameplay cutoff, not an atmosphere model."
 	}
 ]
