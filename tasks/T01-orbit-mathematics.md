@@ -43,17 +43,17 @@ Rocket masses and the rocket equation (T02). Drawing (T05). Gravity of other bod
 ## How to check your work
 Write the tests below in your two test files. Use Earth from `GameData.body("earth")`.
 
-| Check | Expected |
-|---|---|
-| Circular orbit at 400 km altitude | speed ≈ 7672.6 m/s, period ≈ 5545 s |
-| Hohmann transfer from 400 km to 800 km | pulses ≈ 109.3 m/s and ≈ 107.7 m/s |
-| `propagate` over one full period | returns to the starting state |
-| Along any propagated orbit | specific energy and angular momentum stay constant |
-| `elements_from_state` then `state_from_elements` | returns the input, for an ellipse, a circle, a clockwise orbit and an open orbit |
-| A state with speed above escape speed | `is_open` is true |
-| Horizontal launch at 7000 m/s from the surface | trajectory status `IMPACT` |
-| Launch plus a prograde pulse at apoapsis that circularises | status `REACHES_ORBIT`, eccentricity near 0 |
-| A pulse placed at an angle behind an impact point | status `UNREACHABLE_PULSE` |
+| Check                                                      | Expected                                                                         |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Circular orbit at 400 km altitude                          | speed ≈ 7672.6 m/s, period ≈ 5545 s                                              |
+| Hohmann transfer from 400 km to 800 km                     | pulses ≈ 109.3 m/s and ≈ 107.7 m/s                                               |
+| `propagate` over one full period                           | returns to the starting state                                                    |
+| Along any propagated orbit                                 | specific energy and angular momentum stay constant                               |
+| `elements_from_state` then `state_from_elements`           | returns the input, for an ellipse, a circle, a clockwise orbit and an open orbit |
+| A state with speed above escape speed                      | `is_open` is true                                                                |
+| Horizontal launch at 7000 m/s from the surface             | trajectory status `IMPACT`                                                       |
+| Launch plus a prograde pulse at apoapsis that circularises | status `REACHES_ORBIT`, eccentricity near 0                                      |
+| A pulse placed at an angle behind an impact point          | status `UNREACHABLE_PULSE`                                                       |
 
 ## Definition of done
 - No `STUB(T01)` remains.
