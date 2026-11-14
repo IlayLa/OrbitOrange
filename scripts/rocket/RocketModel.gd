@@ -9,6 +9,7 @@ extends RefCounted
 ##   - Stages fire bottom to top. Firing a stage drops every stage below it.
 ##   - A solid motor always burns all its propellant in one burn.
 ##   - A liquid engine delivers what is asked, or as much as its propellant allows.
+##   - A burn asked for no velocity change does not fire: it has no direction.
 ##
 ## Every velocity change comes from the rocket equation (Tsiolkovsky). The mass
 ## flow of an engine is thrust / (specific impulse x standard gravity), the
@@ -110,7 +111,7 @@ static func available_delta_v_meters_per_second(vehicle_state: VehicleState, sta
 		return 0.0
 	if vehicle_state.has_failed_by_stage.get(stage_id, false):
 		return 0.0
-	if vehicle_state.is_jettisoned_by_stage.get(stage_id, true):
+	if vehicle_state.is_jettisoned_by_stage.get(stage_id, false):
 		return 0.0
 	var propellant_kilograms: float = vehicle_state.propellant_kilograms_by_stage.get(stage_id, 0.0)
 	if propellant_kilograms <= EMPTY_PROPELLANT_KILOGRAMS:
@@ -127,11 +128,12 @@ static func available_delta_v_meters_per_second(vehicle_state: VehicleState, sta
 ## Fires one stage and changes vehicle_state accordingly: drops the stages
 ## below it, burns propellant, and drops the stage itself when it runs empty.
 ## A liquid engine delivers the requested velocity change or as much as its
-## propellant allows. A solid motor ignores the request and burns everything.
-## In the returned BurnOutcome, mass_before_kilograms is the mass at ignition,
-## after the lower stages have been dropped: the mass the engine really pushes.
-## When the stage cannot fire, or a liquid engine is asked for nothing,
-## did_fire is false and vehicle_state is left unchanged.
+## propellant allows. A solid motor ignores the size of the request and burns
+## everything. In the returned BurnOutcome, mass_before_kilograms is the mass at
+## ignition, after the lower stages have been dropped: the mass the engine
+## really pushes. When the stage cannot fire, or any engine is asked for
+## nothing (a burn with no direction), did_fire is false and vehicle_state is
+## left unchanged.
 static func apply_burn(
 		vehicle_state: VehicleState,
 		stage_id: int,
@@ -139,14 +141,14 @@ static func apply_burn(
 	var outcome := BurnOutcome.new()
 	outcome.mass_before_kilograms = total_mass_kilograms(vehicle_state)
 	outcome.mass_after_kilograms = outcome.mass_before_kilograms
+	if requested_delta_v_meters_per_second <= 0.0:
+		return outcome
 	if available_delta_v_meters_per_second(vehicle_state, stage_id) <= 0.0:
 		return outcome
 
 	var stage_index: int = _stage_index(vehicle_state.design, stage_id)
 	var stage: Stage = vehicle_state.design.stages[stage_index]
 	var is_solid_motor: bool = _is_solid(stage)
-	if not is_solid_motor and requested_delta_v_meters_per_second <= 0.0:
-		return outcome
 
 	for lower_stage_index in stage_index:
 		var lower_stage_id: int = vehicle_state.design.stages[lower_stage_index].stage_id
@@ -192,6 +194,7 @@ static func apply_burn(
 ## subtracted from the launch stages' velocity change to give the burnout
 ## speed, which is never below zero. Returns a PlanSummary with every field
 ## filled; its warnings are validate_design plus the problems of the plan.
+## Plan problems that start with "Warning:" are advice (see blocking_sentences).
 static func summarize_plan(
 		design: RocketDesign,
 		plan: MissionPlan,
@@ -211,12 +214,24 @@ static func summarize_plan(
 		summary.total_delta_v_meters_per_second += _burn_stage_completely(
 				full_burn_state, stage.stage_id).delta_v_delivered_meters_per_second
 
+	var thrust_warning: String = _launch_thrust_warning(vehicle_state, plan)
+	if thrust_warning != "":
+		summary.warnings.append(thrust_warning)
+
 	var launch_delta_v_meters_per_second: float = 0.0
 	var did_any_launch_stage_fire := false
 	for launch_stage_id in plan.launch_stage_ids:
 		var launch_outcome: BurnOutcome = _burn_stage_completely(vehicle_state, launch_stage_id)
 		launch_delta_v_meters_per_second += launch_outcome.delta_v_delivered_meters_per_second
 		did_any_launch_stage_fire = did_any_launch_stage_fire or launch_outcome.did_fire
+		if not launch_outcome.did_fire:
+			var launch_stage_index: int = _stage_index(design, launch_stage_id)
+			if launch_stage_index < 0:
+				summary.warnings.append("%s A stage set to fire at launch is not part of the rocket." % WARNING_PREFIX)
+			else:
+				summary.warnings.append(
+						"%s Stage %d is set to fire at launch but is already dropped, empty or broken by then."
+						% [WARNING_PREFIX, launch_stage_index + 1])
 	summary.burnout_speed_meters_per_second = maxf(
 			0.0, launch_delta_v_meters_per_second - launch_loss_meters_per_second)
 	if not did_any_launch_stage_fire and not design.stages.is_empty():
@@ -228,16 +243,21 @@ static func summarize_plan(
 		var could_stage_fire: bool = available_delta_v_meters_per_second(vehicle_state, pulse.stage_id) > 0.0
 		var pulse_outcome: BurnOutcome = apply_burn(
 				vehicle_state, pulse.stage_id, requested_delta_v_meters_per_second)
-		# A live liquid stage asked for nothing does not fire, and that is fine.
+		var is_solid_motor: bool = _is_solid(design.find_stage(pulse.stage_id))
+		# A live stage asked for nothing does not fire, and that is fine.
 		var is_affordable: bool = could_stage_fire and requested_delta_v_meters_per_second <= 0.0
 		if pulse_outcome.did_fire:
-			is_affordable = _is_solid(design.find_stage(pulse.stage_id)) or (
+			is_affordable = is_solid_motor or (
 					pulse_outcome.delta_v_delivered_meters_per_second
 					>= requested_delta_v_meters_per_second - AFFORDABLE_TOLERANCE_METERS_PER_SECOND)
 		summary.delta_v_delivered_by_pulse.append(pulse_outcome.delta_v_delivered_meters_per_second)
 		summary.is_pulse_affordable.append(is_affordable)
 		if not could_stage_fire:
-			summary.warnings.append("Pulse %d uses a stage that is already dropped or empty." % (pulse_index + 1))
+			summary.warnings.append(
+					"%s Pulse %d uses a stage that is already dropped or empty." % [WARNING_PREFIX, pulse_index + 1])
+		elif is_solid_motor and requested_delta_v_meters_per_second <= 0.0:
+			summary.warnings.append(
+					"%s Pulse %d has no direction, so its solid motor does not fire." % [WARNING_PREFIX, pulse_index + 1])
 
 	for stage in design.stages:
 		var remaining_delta_v_meters_per_second: float = available_delta_v_meters_per_second(
@@ -248,9 +268,8 @@ static func summarize_plan(
 
 
 ## Problems with the design, one sentence each, for the player. Stages are
-## named by position: "Stage 1" is the bottom stage. A sentence that starts
-## with "Warning:" is advice and does not stop a launch; every other sentence
-## does. Use blocking_problems to get only those.
+## named by position: "Stage 1" is the bottom stage. Every sentence here stops
+## a launch. The thrust check needs the plan, so summarize_plan makes it.
 static func validate_design(design: RocketDesign) -> Array[String]:
 	var problems: Array[String] = []
 	if design.stages.is_empty():
@@ -273,28 +292,46 @@ static func validate_design(design: RocketDesign) -> Array[String]:
 		var payload_category: String = GameData.part(part_id).get("category", "")
 		if payload_category != GameData.CATEGORY_TELEMETRY and payload_category != GameData.CATEGORY_SCIENCE:
 			problems.append("The payload part \"%s\" is not a telemetry or science part." % part_id)
-
-	if not design.stages.is_empty():
-		var first_engine_stats: Dictionary = GameData.part(design.stages[0].engine_part_id).get("stats", {})
-		var thrust_kilonewtons: float = first_engine_stats.get("thrust_kilonewtons", 0.0)
-		var weight_kilonewtons: float = (
-				total_mass_kilograms(create_vehicle_state(design))
-				* STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED / 1000.0)
-		if thrust_kilonewtons < weight_kilonewtons:
-			problems.append(
-					"%s stage 1 pushes with %.1f kilonewtons, less than the rocket's weight on the pad (%.1f kilonewtons)."
-					% [WARNING_PREFIX, thrust_kilonewtons, weight_kilonewtons])
 	return problems
 
 
-## The sentences of validate_design that stop the rocket from flying, without
-## the "Warning:" ones. An empty list means the design can be launched.
+## The sentences of validate_design that stop the rocket from flying. An empty
+## list means the design can be launched.
 static func blocking_problems(design: RocketDesign) -> Array[String]:
+	return blocking_sentences(validate_design(design))
+
+
+## The sentences that stop a launch, without the "Warning:" ones. Pass it
+## PlanSummary.warnings to decide whether the Launch button is enabled.
+static func blocking_sentences(sentences: Array[String]) -> Array[String]:
 	var blocking: Array[String] = []
-	for problem in validate_design(design):
-		if not problem.begins_with(WARNING_PREFIX):
-			blocking.append(problem)
+	for sentence in sentences:
+		if not sentence.begins_with(WARNING_PREFIX):
+			blocking.append(sentence)
 	return blocking
+
+
+## A warning when the first stage that really fires at launch pushes with less
+## than the weight it lifts, or "" when it is strong enough. Stages that cannot
+## fire are skipped, and a stage that is not a proper engine is left to
+## validate_design.
+static func _launch_thrust_warning(vehicle_state: VehicleState, plan: MissionPlan) -> String:
+	for launch_stage_id in plan.launch_stage_ids:
+		if available_delta_v_meters_per_second(vehicle_state, launch_stage_id) <= 0.0:
+			continue
+		var stage_index: int = _stage_index(vehicle_state.design, launch_stage_id)
+		var engine_part: Dictionary = GameData.part(vehicle_state.design.stages[stage_index].engine_part_id)
+		if engine_part.get("category", "") != GameData.CATEGORY_ENGINE:
+			return ""
+		var thrust_kilonewtons: float = engine_part.get("stats", {}).get("thrust_kilonewtons", 0.0)
+		var weight_kilonewtons: float = (
+				_mass_when_stage_fires_kilograms(vehicle_state, stage_index)
+				* STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED / 1000.0)
+		if thrust_kilonewtons >= weight_kilonewtons:
+			return ""
+		return "%s Stage %d fires first at launch with %.1f kilonewtons, less than the weight it lifts (%.1f kilonewtons)." % [
+				WARNING_PREFIX, stage_index + 1, thrust_kilonewtons, weight_kilonewtons]
+	return ""
 
 
 ## Fires a stage until it is empty, whatever its engine type.
