@@ -1,0 +1,116 @@
+[
+	{
+		"id": "engine_liquid_basic",
+		"category": "engine",
+		"name": "Basic liquid engine",
+		"tier": 1,
+		"cost_million_usd": 5,
+		"dry_mass_kilograms": 500,
+		"icon_path": "res://assets/placeholders/parts/engine_liquid_basic.png",
+		"tradeoff": "Can fire several times with any amount of thrust, but needs a separate tank.",
+		"source": "Placeholder value written for the skeleton; not yet sourced.",
+		"is_approximate": true,
+		"mission_fit": {},
+		"stats": {
+			"engine_type": "liquid",
+			"specific_impulse_seconds": 330,
+			"thrust_kilonewtons": 400
+		}
+	},
+	{
+		"id": "engine_solid_basic",
+		"category": "engine",
+		"name": "Basic solid motor",
+		"tier": 1,
+		"cost_million_usd": 2,
+		"dry_mass_kilograms": 150,
+		"icon_path": "res://assets/placeholders/parts/engine_solid_basic.png",
+		"tradeoff": "Cheap and simple, but fires once and burns everything.",
+		"source": "Placeholder value written for the skeleton; not yet sourced.",
+		"is_approximate": true,
+		"mission_fit": {},
+		"stats": {
+			"engine_type": "solid",
+			"specific_impulse_seconds": 280,
+			"thrust_kilonewtons": 300,
+			"propellant_kilograms": 2000
+		}
+	},
+	{
+		"id": "tank_aluminium_basic",
+		"category": "tank",
+		"name": "Aluminium tank",
+		"tier": 1,
+		"cost_million_usd": 3,
+		"dry_mass_kilograms": 1200,
+		"icon_path": "res://assets/placeholders/parts/tank_aluminium_basic.png",
+		"tradeoff": "Cheap and heavy.",
+		"source": "Placeholder value written for the skeleton; not yet sourced.",
+		"is_approximate": true,
+		"mission_fit": {},
+		"stats": {
+			"propellant_capacity_kilograms": 20000,
+			"pressurization": "regulated"
+		}
+	},
+	{
+		"id": "telemetry_altimeter_basic",
+		"category": "telemetry",
+		"name": "Basic altimeter",
+		"tier": 1,
+		"cost_million_usd": 0.5,
+		"dry_mass_kilograms": 5,
+		"icon_path": "res://assets/placeholders/parts/telemetry_altimeter_basic.png",
+		"tradeoff": "Shows altitude, with noticeable noise and a slow refresh.",
+		"source": "Placeholder value written for the skeleton; not yet sourced.",
+		"is_approximate": true,
+		"mission_fit": {},
+		"stats": {
+			"channel": "altitude_meters",
+			"range_kilometers": 0,
+			"noise_fraction": 0.05,
+			"updates_per_second": 1,
+			"resolution_level": 0,
+			"dropout_probability": 0.02
+		}
+	},
+	{
+		"id": "telemetry_radar_basic",
+		"category": "telemetry",
+		"name": "Basic proximity radar",
+		"tier": 1,
+		"cost_million_usd": 1,
+		"dry_mass_kilograms": 20,
+		"icon_path": "res://assets/placeholders/parts/telemetry_radar_basic.png",
+		"tradeoff": "Sees nearby objects late and only as blips.",
+		"source": "Placeholder value written for the skeleton; not yet sourced.",
+		"is_approximate": true,
+		"mission_fit": {},
+		"stats": {
+			"channel": "radar",
+			"range_kilometers": 50,
+			"noise_fraction": 0.2,
+			"updates_per_second": 0.5,
+			"resolution_level": 0,
+			"dropout_probability": 0.05
+		}
+	},
+	{
+		"id": "science_camera_basic",
+		"category": "science",
+		"name": "Basic Earth camera",
+		"tier": 1,
+		"cost_million_usd": 4,
+		"dry_mass_kilograms": 30,
+		"icon_path": "res://assets/placeholders/parts/science_camera_basic.png",
+		"tradeoff": "Light and cheap, with a modest data rate.",
+		"source": "Placeholder value written for the skeleton; not yet sourced.",
+		"is_approximate": true,
+		"mission_fit": { "earth_imaging": 2 },
+		"stats": {
+			"power_watts": 20,
+			"data_rate_megabits_per_second": 1,
+			"science_value": 1
+		}
+	}
+]

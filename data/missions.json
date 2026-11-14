@@ -1,0 +1,71 @@
+[
+	{
+		"id": "low_earth_orbit_placeholder",
+		"name": "First orbit",
+		"briefing": "Placeholder mission: reach a circular low Earth orbit and photograph the planet.",
+		"body_id": "earth",
+		"launch_site": { "polar_angle_degrees": 90 },
+		"launch_loss_meters_per_second": 1500,
+		"target": {
+			"altitude_kilometers": 400,
+			"altitude_tolerance_kilometers": 100,
+			"eccentricity": 0.0,
+			"eccentricity_tolerance": 0.05
+		},
+		"duration_seconds": 16635,
+		"budget_million_usd": 30,
+		"display": {
+			"body_radius_pixels": 90,
+			"pixels_per_kilometer": 0.06,
+			"altitude_ring_kilometers": [200, 400, 800]
+		},
+		"science_missions": [
+			{
+				"id": "earth_imaging",
+				"name": "Earth imaging",
+				"description": "Placeholder: photograph the surface from a stable low orbit.",
+				"zone": {
+					"type": "altitude_band",
+					"inner_altitude_kilometers": 300,
+					"outer_altitude_kilometers": 500
+				},
+				"required_coverage_fraction": 0.8,
+				"required_data_megabits": 5000
+			}
+		],
+		"side_quests": [
+			{
+				"id": "keep_reserve_placeholder",
+				"name": "Keep a reserve",
+				"description": "Placeholder: end the mission with at least 100 m/s of delta-v left.",
+				"grant_million_usd": 5,
+				"condition": {
+					"type": "reserve_delta_v_at_least",
+					"delta_v_meters_per_second": 100
+				},
+				"related_event_type_ids": ["satellite_conjunction"],
+				"related_multiplier": 3.0,
+				"unrelated_bonus": 0.05
+			}
+		],
+		"hazard_zones": [
+			{
+				"id": "debris_belt_placeholder",
+				"name": "Debris belt",
+				"type": "altitude_band",
+				"inner_altitude_kilometers": 700,
+				"outer_altitude_kilometers": 1000,
+				"event_type_ids": ["satellite_conjunction"]
+			}
+		],
+		"hazard_rates": {
+			"satellite_conjunction": [
+				{ "inner_altitude_kilometers": 0, "outer_altitude_kilometers": 2000, "events_per_hour": 0.2 },
+				{ "inner_altitude_kilometers": 2000, "outer_altitude_kilometers": 100000, "events_per_hour": 0.02 }
+			]
+		},
+		"ground_stations": [
+			{ "polar_angle_degrees": 90 }
+		]
+	}
+]

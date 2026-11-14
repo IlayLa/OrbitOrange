@@ -1,0 +1,22 @@
+# Use of AI in this project
+
+The NASA Space Apps rules allow AI tools and require the submission to say how they were used. Most of this project's code is written by AI coding agents, directed and reviewed by the team.
+
+To keep that record complete without several agents editing one file, **each task writes its own file** in `docs/ai_usage/`:
+
+| File | Covers |
+|---|---|
+| `ai_usage/T00.md` | The design review, the plan, the shared skeleton, the contracts and the task files |
+| `ai_usage/T01.md` … `T08.md` | One per task, written by the agent that does the task |
+
+## What each file records
+For every working session:
+- the date,
+- the tool and model,
+- what it was asked to do,
+- which files it produced or changed,
+- what a team member reviewed, tested or changed by hand.
+
+AI-made images, sounds and text are recorded the same way as code.
+
+**A change made with AI is not finished until its entry is written, in the same commit.** The project page for the submission is assembled from these files.

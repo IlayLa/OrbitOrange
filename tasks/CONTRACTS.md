@@ -1,0 +1,186 @@
+# OrbitOrange contracts
+
+This file fixes everything two tasks must agree on: names, units, who owns which file, what each module offers, and the data formats. Read it before your task file.
+
+**The code is the exact contract.** Every public function already exists in the skeleton with its final name, parameters and return type, and a comment saying what it must do. This file explains how the pieces fit; for an exact signature, open the file named here.
+
+## 1. Naming rule
+It applies to all code, JSON keys and documents.
+
+- **Full words, no abbreviations.** `delta_v`, `specific_impulse`, `eccentricity`, `vehicle_state`, `stage_id`. Never `dv`, `isp`, `e`, `vs`, `uid`, `idx`, `tmp`.
+- **Units are written in the name** of every number that has one: `_meters`, `_kilometers`, `_meters_per_second`, `_kilograms`, `_seconds`, `_radians`, `_degrees`, `_kilonewtons`, `_million_usd`, `_megabits`, `_pixels`.
+- **Booleans read as statements:** `is_open`, `has_failed`, `did_fire`.
+- **No single-letter variables**, including loop counters: `stage_index`, `pixel_x`.
+- **One exception:** the parameter `gravitational_parameter` is always in m³/s². Its JSON key does spell the unit out.
+- **Code uses SI units** (metres, kilograms, seconds, radians). JSON may use kilometres, kilonewtons, degrees and million USD because people edit it by hand; the key says which.
+- Every public function has a `##` comment saying what it returns and in which unit.
+
+## 2. Modules and file ownership
+One owner per file. You may create and edit only the files your task file lists. "Integrator" means the human who merges the branches; ask for changes to those files in `tasks/notes/T0N.md`.
+
+| Module | Files | Owner |
+|---|---|---|
+| Project settings | `project.godot` | Integrator |
+| Shared types | `scripts/core/types/*.gd` | Integrator |
+| Plan glue, layout, test helper | `scripts/core/PlanResolver.gd`, `ScreenLayout.gd`, `TestReport.gd` | Integrator |
+| Catalogue loader | `autoload/GameData.gd` | Integrator |
+| Game state | `autoload/GameState.gd` | Integrator |
+| Menu and console shell | `scripts/screens/*.gd`, `scenes/MainMenu.tscn`, `scenes/Console.tscn` | Integrator |
+| Test runner, checks | `tests/TestRunner.*`, `tests/test_skeleton.gd`, `tools/check_project.*` | Integrator |
+| Orbit mathematics | `scripts/orbit/Kepler.gd`, `scripts/orbit/OrbitModel.gd` | T01 |
+| Rocket numbers | `scripts/rocket/RocketModel.gd`, `data/parts.json` | T02 |
+| Flight | `autoload/FlightSimulation.gd`, `scripts/flight/**` | T03 |
+| Missions and score | `data/missions.json`, `data/bodies.json`, `scripts/mission/**`, `scenes/MissionSelect.tscn`, `scenes/FinalScreen.tscn` | T04 |
+| Orbit display and planning | `scripts/orbit/OrbitView.gd`, `scripts/orbit/OrbitPlanning.gd`, `scripts/orbit/planning/**`, `scenes/planning/OrbitPlanning.tscn` | T05 |
+| Rocket design and planning overview | `scripts/design/**`, `scenes/PlanningConsole.tscn`, `scenes/planning/RocketDesign.tscn` | T06 |
+| Events | `autoload/EventDirector.gd`, `scripts/events/**`, `scenes/events/**`, `data/event_types.json`; in wave 2 also the `hazard_zones` and `hazard_rates` keys of `data/missions.json` | T07 |
+| Execution console | `scripts/execution/**`, `scenes/ExecutionConsole.tscn`, `tools/generate_placeholders.gd` | T08 |
+
+Every task also owns its own `tests/test_<module>.gd` files, `scenes/development/T0N_*.tscn` demo scenes, and its three hand-back files (section 9).
+
+## 3. Rules between modules
+```
+            GameData (catalogue) ── read by everyone
+                    │
+ MissionSelect(T04) ─► GameState ◄─ RocketDesign(T06)   OrbitPlanning(T05)
+                          │  change design/plan, then notify_*()
+                          ▼
+                    PlanResolver
+                     │                 │
+          RocketModel(T02)        OrbitModel + Kepler(T01)
+                          │ launch_requested
+                          ▼
+              FlightSimulation(T03) ──telemetry_updated──► ExecutionConsole(T08)
+                          │  ▲
+                          ▼  │
+                     EventDirector(T07) ── shows threats with OrbitView(T05)
+                          │ flight_ended
+                          ▼
+                     Scoring(T04) ──► FinalScreen(T04)
+```
+- **Logic is static classes** (`Kepler`, `OrbitModel`, `RocketModel`, `Scoring`). They use no scene tree and no game state. They may read the catalogue through `GameData`.
+- **Screens never call each other.** A planning screen changes `GameState.design` or `GameState.plan`, calls `GameState.notify_design_changed()` or `notify_plan_changed()`, and every screen redraws on `GameState.derived_changed` from `GameState.summary` and `GameState.trajectory`.
+- **Only `FlightSimulation` knows the true state of the craft in flight.** The execution console reads `TelemetryFrame` objects and nothing else.
+- **`Kepler` knows nothing about rockets; `RocketModel` knows nothing about orbits.** They meet only in `PlanResolver`.
+- **Nobody opens a data file** except `GameData`.
+
+## 4. Shared types
+All in `scripts/core/types/`. Open the file for the fields and their meaning.
+
+| Type | What it is | Created by |
+|---|---|---|
+| `OrbitState` | position, velocity and time: the truth about an orbit | `Kepler` |
+| `OrbitElements` | shape and orientation, computed from a state | `Kepler` |
+| `Stage`, `RocketDesign` | what the player built | T06 screen |
+| `Pulse`, `MissionPlan` | what the player planned | T05 screen |
+| `VehicleState` | the rocket right now: propellant left, dropped stages, broken parts | `RocketModel` |
+| `BurnOutcome` | what one engine firing really did | `RocketModel` |
+| `PlanSummary` | cost, masses and delta-v per pulse and per stage | `RocketModel` |
+| `ResolvedBurn`, `ResolvedPlan` | a pulse after mass bookkeeping; summary + trajectory | `PlanResolver` |
+| `TrajectorySegment`, `Trajectory` | the predicted flight path | `OrbitModel` |
+| `Threat` | another object that may hit the craft | `EventDirector` |
+| `TelemetryReading`, `TelemetryFrame` | what the instruments show | `FlightSimulation` |
+| `FlightResult` | how the flight ended | `FlightSimulation` |
+| `ScoreLine`, `ScoreReport` | the score with explanations | `Scoring` |
+
+## 5. Public functions
+Exact signatures and comments are in the file. A body marked `STUB(T0N)` is a placeholder that task T0N must replace; its comment says how the stub behaves meanwhile.
+
+| File | Functions and signals |
+|---|---|
+| `scripts/orbit/Kepler.gd` | `circular_speed_meters_per_second`, `orbital_period_seconds`, `altitude_meters`, `flight_path_angle_radians`, `signed_angular_momentum`, `elements_from_state`, `state_from_elements`, `propagate`, `apply_pulse`, `launch_state`, `seconds_until_polar_angle`, `fraction_of_period_inside_band` |
+| `scripts/orbit/OrbitModel.gd` | `build_trajectory`, `build_trajectory_from_state`, `state_at_time`, `sample_segment_points`, `sample_full_orbit_points` |
+| `scripts/rocket/RocketModel.gd` | `delta_v_from_rocket_equation`, `propellant_needed_for_delta_v`, `total_cost_million_usd`, `all_part_ids`, `full_propellant_kilograms`, `create_vehicle_state`, `total_mass_kilograms`, `available_delta_v_meters_per_second`, `apply_burn`, `summarize_plan`, `validate_design` |
+| `scripts/core/PlanResolver.gd` | `resolve(design, plan, mission) -> ResolvedPlan` |
+| `autoload/GameData.gd` | `part`, `parts_in_category`, `all_missions`, `mission`, `body`, `all_event_types`, `event_type`, `register_part` |
+| `autoload/GameState.gd` | fields `mission`, `science_mission_id`, `side_quest_ids`, `budget_million_usd`, `design`, `plan`, `summary`, `trajectory`, `has_launched`, `flight_result`, `score`, `random_seed`; functions `start_new_game`, `select_mission`, `science_mission`, `accepted_side_quests`, `notify_design_changed`, `notify_plan_changed`, `request_launch`, `finish_flight`, `go_to_scene`; signals `mission_changed`, `derived_changed`, `launch_requested`, `flight_finished` |
+| `autoload/FlightSimulation.gd` | fields `is_flying`, `time_scale`, `simulation_time_seconds`, `craft_state`, `vehicle_state`, `trajectory`, `threats`, `event_log`; functions `start_flight`, `set_time_scale`, `pause`, `apply_emergency_pulse`, `add_threat`, `remove_threat`, `log_event`, `raise_alert`, `end_flight`; signals `simulation_step`, `telemetry_updated`, `pulse_fired`, `alert_raised`, `flight_started`, `flight_ended` |
+| `scripts/mission/Scoring.gd` | `compute_score`, `budget_points`, `band_name_for_points` |
+| `scripts/orbit/OrbitView.gd` | `configure`, `show_trajectory`, `show_craft`, `show_threats`, `world_to_screen`, `screen_to_polar_angle_radians`, `screen_to_radius_meters` |
+| `scripts/core/ScreenLayout.gd` | screen size, mock-up rectangles and colours (constants) |
+
+## 6. Conventions
+
+### Frame and units
+The frame is inertial, two-dimensional, centred on the central body. +x points right and +y points up; angles are measured counter-clockwise from +x. Time is seconds since launch. Physics uses plain 64-bit `float` values, never `Vector2` (it holds 32-bit numbers, too coarse for metres at orbital distances). Convert to `Vector2` only to draw.
+
+### Orbit conventions (T01)
+From the GMAT Mathematical Specifications (NASA GSFC draft), section 4.1.2, Table 4.3. In two dimensions only its two "equatorial" cases apply:
+
+| Case | Argument of periapsis | True anomaly |
+|---|---|---|
+| Eccentricity ≥ 10⁻¹¹ | angle from +x to the eccentricity vector | angle from the eccentricity vector to the position; add the quadrant fix when the craft is moving inward |
+| Eccentricity < 10⁻¹¹ | 0 | angle from +x to the position |
+
+- A clockwise orbit sets `is_clockwise`; its angles are mirrored.
+- An orbit is **open** when its specific energy is zero or positive. Open orbits have `is_open` set, a negative semi-major axis, and `INF` for period and apoapsis.
+- `OrbitState` is the truth. Elements are always computed from it.
+
+### Pulse rule (T01, T05)
+- A pulse fires at the first moment after the previous burn when the craft crosses the direction `polar_angle_radians`, after `extra_revolutions` full orbits. The order of `MissionPlan.pulses` is the firing order.
+- `delta_v_along_velocity_meters_per_second` points along the motion. `delta_v_outward_meters_per_second` is perpendicular to it, pointing away from the central body (GMAT's V and B directions).
+- A pulse with `fires_immediately` set ignores the angle and fires at the current position. Only emergency pulses use it.
+- When the craft never reaches the angle (impact or escape first), the trajectory status is `UNREACHABLE_PULSE`.
+
+### Rocket rules (T02)
+- `RocketDesign.stages[0]` is the bottom stage and fires first.
+- A liquid engine's propellant is in its tank part. A solid motor carries its own. Tanks start full.
+- Firing a stage drops every stage below it, with whatever propellant they still hold. A stage that runs empty is dropped.
+- Launch stages (`MissionPlan.launch_stage_ids`) burn completely. Their velocity change minus the mission's `launch_loss_meters_per_second` is the burnout speed.
+- A solid motor fires once and burns everything: the pulse gives only the direction.
+- A liquid engine delivers the requested velocity change, or as much as its propellant allows (`is_pulse_affordable` is then false).
+
+### Display mapping (T05)
+Altitude is exaggerated so low orbits are visible. A point at true distance `radius_meters` from the body's centre is drawn, in the same direction, at
+```
+drawn_radius_pixels = body_radius_pixels + pixels_per_kilometer × altitude_kilometers
+```
+from the centre of the `OrbitView`. Both numbers come from the mission's `display` entry. Paths are drawn as lines through sampled points, never as ellipses, because the stretched curve is not an ellipse.
+
+### Screen layout
+The canvas is 640×400 pixels: five times Amit's 128×80 mock-ups in `design/`. Use the rectangles and colours in `ScreenLayout.gd`. `CONSOLE_SWITCH_RECT` (top right) belongs to the console shell on every screen.
+
+### Flight time (T03, T07)
+`FlightSimulation` advances in fixed steps of `SIMULATION_STEP_SECONDS` of simulated time and emits `simulation_step` once per step, at any time scale. Random rolls and collision checks happen per step, never per drawn frame, so the odds do not depend on frame rate or time scale. An event with rate `events_per_hour` happens in one step with probability `1 − e^(−events_per_hour × step_seconds / 3600)`.
+
+### Telemetry channels (T03, T08)
+The channel names are the `CHANNEL_…` constants in `TelemetryFrame.gd`; each name ends in the unit of its value. A telemetry part's `stats.channel` is one of those names, or `"radar"` or `"computer"`. A channel with no installed part has `is_sensor_installed` false and the panel shows "NO SENSOR". The acceleration channel needs no part.
+
+### Event log (T03, T07, T04)
+One Dictionary per event; the keys are listed in `FlightResult.gd`.
+
+### Side-quest conditions (T04)
+`condition.type` is one of: `reserve_delta_v_at_least`, `reserve_delta_v_at_most` (both with `delta_v_meters_per_second`). T04 may add types and must list them here through a contract request.
+
+## 7. Data files
+All four are JSON lists of entries with a unique `"id"`. The seed entries in the skeleton are valid examples of every key.
+
+**`data/parts.json`**: `id`, `category` (`engine`, `tank`, `telemetry`, `science`), `name`, `tier` (1 to 3), `cost_million_usd`, `dry_mass_kilograms`, `icon_path`, `tradeoff`, `source`, `is_approximate`, `mission_fit` (science mission id → 0 to 3), `stats`:
+- engine: `engine_type` (`solid` or `liquid`), `specific_impulse_seconds`, `thrust_kilonewtons`, and for solids `propellant_kilograms`
+- tank: `propellant_capacity_kilograms`, `pressurization` (`regulated` or `blowdown`)
+- telemetry: `channel`, `range_kilometers`, `noise_fraction`, `updates_per_second`, `resolution_level` (0 blip, 1 distance and bearing, 2 shape and speed), `dropout_probability`
+- science: `power_watts`, `data_rate_megabits_per_second`, `science_value`
+
+**`data/missions.json`**: `id`, `name`, `briefing`, `body_id`, `launch_site.polar_angle_degrees`, `launch_loss_meters_per_second`, `target` (`altitude_kilometers`, `altitude_tolerance_kilometers`, `eccentricity`, `eccentricity_tolerance`), `duration_seconds`, `budget_million_usd`, `display` (`body_radius_pixels`, `pixels_per_kilometer`, `altitude_ring_kilometers`), `science_missions` (`id`, `name`, `description`, `zone`, `required_coverage_fraction`, `required_data_megabits`), `side_quests` (`id`, `name`, `description`, `grant_million_usd`, `condition`, `related_event_type_ids`, `related_multiplier`, `unrelated_bonus`), `hazard_zones`, `hazard_rates` (event type id → list of `inner_altitude_kilometers`, `outer_altitude_kilometers`, `events_per_hour`), `ground_stations`.
+
+**`data/bodies.json`**: `id`, `name`, `gravitational_parameter_cubic_meters_per_second_squared`, `radius_meters`, `atmosphere_height_meters`, `source`.
+
+**`data/event_types.json`**: `id`, `name`, `kind` (`threat`, `fault`, `environment`), `description`, `weight`, `earliest_time_seconds`, `inside_zone_multiplier`.
+
+Adding a key is allowed for the file's owner. Renaming or removing one is a contract change.
+
+## 8. Changing a contract
+Do not edit a file you do not own, and do not change the name, parameters or return type of a public function. If a contract blocks you:
+1. Write what you need and why in `tasks/notes/T0N.md` under "Contract requests".
+2. Tell your human, who relays it to the integrator.
+3. Meanwhile, work around it inside your own files.
+
+Adding a new function to your own module is fine. Say so in your notes so others can find it.
+
+## 9. Hand-back files
+The hackathon rules require a record of AI use and of every external resource. Each task writes its own files, so no two agents edit the same one:
+- `docs/ai_usage/T0N.md`: date, tool and model, what it was asked to do, which files it produced, what a human reviewed or changed.
+- `docs/references/T0N.md`: every external resource used (data source, document, code, image, font): name, URL, licence, where it is used.
+- `tasks/notes/T0N.md`: what is done, what is not, deviations from the task file, new functions, contract requests.
+
+A task is not finished until all three exist.

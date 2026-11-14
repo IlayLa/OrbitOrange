@@ -1,5 +1,7 @@
 # OrbitOrange — Initial Godot Template (redesigned to match the team sketch)
 
+> **Names are fixed in `tasks/CONTRACTS.md`.** File names, function signatures and JSON keys there win wherever this document differs. All identifiers use full words with units written out (for example `delta_v_along_velocity_meters_per_second`, `specific_impulse_seconds`).
+
 ## Context
 The NASA Space Apps 2026 "Space Mission Design Game" asks for mission design with real trade-offs. From `context/Notes/Absolute Truths.md`: **2D, pixel art, Godot (4.7), POC, Keplerian mechanics, control-room look**. The POC mission is a **low Earth orbit** (Tasks.md idea #1). The team wants an editable template with placeholder assets for **telemetry screens, rocket design and Keplerian dynamics**, focused on **mission planning**.
 
@@ -17,7 +19,7 @@ The visual design comes from the team sketch: `context/ScreensDraft.jpeg`.
 4. "Accept mission" opens the console. The choices fill the objective list and are fixed for the run.
 
 ## Visual design (from the sketch)
-The game is **one control-room console with two halves**: **PLANNING ◀ | ▶ EXECUTION**. The player switches with the arrow tabs at the top (slide transition). On a 640×360 pixel viewport each half fills the screen. EXECUTION stays locked until "Launch".
+The game is **one control-room console with two halves**: **PLANNING ◀ | ▶ EXECUTION**. The player switches with the arrow tabs at the top (slide transition). On a 640×400 pixel viewport (exactly 5× the 128×80 mock-ups in `design/`) each half fills the screen. EXECUTION stays locked until "Launch".
 
 ### PLANNING half (`scenes/PlanningConsole.tscn`): overview + two zoom views
 **Overview** (top-left of the sketch): two monitors, the **rocket monitor** on the left and the **orbit monitor** on the right, with compact `$` `ΔV` `W` chips on top. `W` is the rocket's weight (mass in kg), shown as total and empty (dry). It is a readout only and has no upper limit. Each monitor has a **🔍 zoom button** (and click-to-zoom). Zooming is an animated camera/scale move into that monitor. Pressing "◀ back" or Esc zooms out. Stages and part cards are **not** shown in the overview.
@@ -67,14 +69,15 @@ Left column: mission time, ΔV remaining, objective list. Instrument wall: **ALA
 
 ## Project layout
 ```
-project.godot                 Godot 4.7, 640x360, stretch canvas_items, integer scale, nearest filter, GL Compatibility
+project.godot                 Godot 4.7, 640x400, stretch canvas_items, integer scale, nearest filter, GL Compatibility
 autoload/GameState.gd         budget, rocket (stages+parts+derived), mission plan, results, signals
-autoload/Kepler.gd            2D two-body math
+autoload/GameData.gd          loads the JSON files in data/
+scripts/orbit/Kepler.gd       2D two-body math (static class)
 data/parts.json               ENG / MAT / TEL / SCI catalogue (NASA-sourced, approx flags)
 data/missions.json            per mission: target orbit + tolerances, duration, budget, launch site, loss term,
                               science missions, side quests, hazard zones, hazard rates, scoring weights
 data/bodies.json              celestial bodies (Earth now; Moon later): mu, radius, atmosphere, sprite
-data/events.json              random event definitions (see Random events)
+data/event_types.json              random event definitions (see Random events)
 scenes/MainMenu.tscn          -> MissionSelect
 scenes/MissionSelect.tscn     mission card, science mission, side quests -> Console
 scenes/Console.tscn           holds both halves, PLANNING/EXECUTION arrow tabs, slide transition
@@ -82,7 +85,8 @@ scenes/PlanningConsole.tscn   rocket preview + parts column + stat chips + orbit
 scenes/RocketDesign.tscn      rocket preview monitor (separate scene, embedded)
 scenes/ExecutionConsole.tscn  instrument wall
 scenes/FinalScreen.tscn       score + task explanations + Amit portrait
-scripts/design/{RocketBuilder,PartCard,PartDetailsPopup,StatChips}.gd
+scripts/rocket/RocketModel.gd mass chain, ΔV and cost (logic only, no screen)
+scripts/design/{RocketDesign,PartCard,PartDetailsPopup,StatChips}.gd
 scripts/mission/MissionSelect.gd  builds the briefing and choices from missions.json
 scripts/ui/ZoomMonitor.gd     overview <-> zoom animation for a monitor
 scripts/orbit/EngineList.gd   engine rows, select engine -> pulse placement mode
@@ -101,9 +105,9 @@ README.md
 ## Rocket design (Planning: left monitor + parts column + stage list)
 **Rocket = stages.** Each stage = engine (ENG) + tank/structure material (MAT). Engines left after the ascent perform the pulses (solid = one pulse, liquid = several). The top stage carries the payload: TEL and SCI instruments.
 
-**ΔV:** Tsiolkovsky per engine, in firing order, with spent stages jettisoned (`Kepler.stage_dv`). The `ΔV` chip shows total ΔV. Launch and orbit use the same engines (see Orbit / pulse planning).
+**ΔV:** Tsiolkovsky per engine, in firing order, with spent stages jettisoned (`RocketModel.summarize_plan`). The `ΔV` chip shows total ΔV. Launch and orbit use the same engines (see Orbit / pulse planning).
 
-**Data sources** (`context/NASA Space Apps Challenge description.html` → NASA Data & Resources). Part numbers start as public figures flagged `"approx": true`, each with a `source` field. Yasha (Tasks.md #4) verifies each against its source and clears the flag:
+**Data sources** (`context/NASA Space Apps Challenge description.html` → NASA Data & Resources). Part numbers start as public figures flagged `"is_approximate": true`, each with a `source` field. Yasha (Tasks.md #4) verifies each against its source and clears the flag:
 | Resource | Used for |
 |---|---|
 | CubeSat 101 | payload bus sizes (1U/3U/6U), subsystems, power/data figures for TEL/SCI parts |
@@ -114,11 +118,13 @@ README.md
 
 **Part schema** (one entry, all fields GMAT-compatible where possible):
 ```json
-{ "id": "eng_rl10", "tab": "ENG", "name": "RL10-class upper-stage engine", "type": "liquid",
-  "cost_musd": 10, "mass_kg": 300, "stats": { "isp_s": 465, "thrust_kn": 110, "propellant_kg": 2000 },
-  "mission_fit": { "leo_insertion": 3 }, "tradeoff": "Very efficient, expensive; ideal upper stage.",
-  "source": "public spec; GMAT ChemicalThruster fields", "approx": true }
+{ "id": "engine_rl10", "category": "engine", "name": "RL10-class upper-stage engine",
+  "cost_million_usd": 10, "dry_mass_kilograms": 300,
+  "stats": { "engine_type": "liquid", "specific_impulse_seconds": 465, "thrust_kilonewtons": 110 },
+  "mission_fit": { "earth_imaging": 3 }, "tradeoff": "Very efficient, expensive; ideal upper stage.",
+  "source": "public spec; GMAT ChemicalThruster fields", "is_approximate": true }
 ```
+A liquid engine's propellant lives in its tank (a `tank` part with `propellant_capacity_kilograms`); a solid motor carries its own `propellant_kilograms`. The four categories are `engine`, `tank`, `telemetry` and `science`; the screen labels them ENG / MAT / TEL / SCI.
 
 **POC catalogue (3 tiers each, approximate):**
 | Tab | Parts | Key stats | How it complements the mission |
@@ -126,7 +132,7 @@ README.md
 | ENG, solid | small solid kick motor, Star-class solid, large solid booster | Isp, propellant, mass, cost (cheap) | Cheap launch muscle. In orbit: **one fixed-ΔV pulse, direction only** |
 | ENG, liquid | cold-gas thruster, Rutherford-class (Isp ~343 s vac), Merlin-class (Isp ~282 s SL / 348 s vac), RL10-class (Isp ~465 s) | Isp, thrust, cost | Upper stage: **pulses with chosen direction + ΔV**. Higher Isp = more ΔV per kg, at higher cost |
 | MAT | aluminium tank, Al-Li tank, carbon-composite tank; blow-down vs. regulated pressurization | dry mass, propellant capacity, cost | Lighter tanks = more ΔV. Blow-down is cheaper, but later pulses get weaker (GMAT `PressureModel`) |
-| TEL | **proximity/collision radar** (navigation; *not* the SCI imaging radar), altimeter, attitude sensor, fuel gauge, temperature sensor, onboard computer, each in 3 tiers | range, noise, update_hz, resolution, dropout | Decides the quality of each EXECUTION panel. Missing = "NO SENSOR". The accelerometer is built in and needs no part. A better onboard computer reduces glitches during solar flares |
+| TEL | **proximity/collision radar** (navigation; *not* the SCI imaging radar), altimeter, attitude sensor, fuel gauge, temperature sensor, onboard computer, each in 3 tiers | range, noise, updates per second, resolution, dropout | Decides the quality of each EXECUTION panel. Missing = "NO SENSOR". The accelerometer is built in and needs no part. A better onboard computer reduces glitches during solar flares |
 | SCI | camera (Earth imaging), magnetometer (space weather), drag/Langmuir probe (atmosphere), **SAR imaging radar** (Earth-surface science; *not* the TEL proximity radar) | mass, power, data, cost, science value | Each matches a science mission (`mission_fit` 0–3, shown as stars) |
 
 The `$`, `ΔV` and `W` chips plus mission-fit stars update live. **Going over budget is allowed and costs score points** (see Scoring): the `$` chip turns red and shows the projected penalty. "Launch" is disabled (with a tooltip) only when there's no engine. A plan that doesn't reach orbit *can* be launched: it fails (see Launch).
@@ -150,7 +156,7 @@ r_px = R_px + k · (r − R)
 - A trajectory that starts at the surface always comes back down, unless a pulse raises the periapsis. So, as in the sketch, the player places a **ΔV pulse near the top of the arc** with a remaining engine to circularize.
 - **Launch failure:** if the final planned path hits Earth or has periapsis inside the atmosphere (< 100 km), the arc is drawn red and planning shows "WILL NOT REACH ORBIT". If launched anyway, EXECUTION shows the crash and FinalScreen shows a special **"Rocket didn't launch successfully"** result with **score 0**.
 - **Launch angle limit:** the slider stops short of straight up. A vertical launch has zero angular momentum, which is a degenerate conic.
-- **Ascent readout:** EXECUTION plays the burn of the launch engines before the ballistic arc starts, which gives the accelerometer a real signal: `a(t) = F / m(t)`, with `m(t) = m₀ − ṁ·t` and `ṁ = F / (Isp·g₀)` (the same mass-flow relation as GMAT Math Spec eq. 11.1). This uses the engine's `thrust_kn`. It is a readout only and does not change the trajectory.
+- **Ascent readout:** EXECUTION plays the burn of the launch engines before the ballistic arc starts, which gives the accelerometer a real signal: `a(t) = F / m(t)`, with `m(t) = m₀ − ṁ·t` and `ṁ = F / (Isp·g₀)` (the same mass-flow relation as GMAT Math Spec eq. 11.1). This uses the engine's `thrust_kilonewtons`. It is a readout only and does not change the trajectory.
 
 ### Pulses (instant ΔV, no continuous burns)
 Select an engine in the list:
@@ -167,7 +173,7 @@ Select an engine in the list:
 3. When an engine is spent (solid after its single point, liquid when its propellant runs out), its stage (engine + tank dry mass) is **jettisoned**, and the rocket is lighter again.
 4. So the *same* propellant in a later engine buys **more** ΔV than it would at launch. Example: 100 kg of propellant at Isp 300 s gives ~100 m/s on a 3,000 kg rocket, but ~310 m/s after it's down to 1,000 kg.
 
-In the UI, `RocketBuilder.simulate_masses(plan)` re-runs this chain after every edit. Each engine row shows its current available ΔV, and when an earlier pulse is changed, later rows flash the difference (e.g. "+40 m/s"). A solid engine's fixed ΔV also shifts, depending on how much mass is left when it fires.
+`RocketModel.summarize_plan(design, plan, launch_loss_meters_per_second)` re-runs this chain after every edit. Each engine row shows its current available ΔV, and when an earlier pulse is changed, later rows flash the difference (e.g. "+40 m/s"). A solid engine's fixed ΔV also shifts, depending on how much mass is left when it fires.
 
 ### Drawing the path with several pulses (`PathRenderer.gd`)
 The plan is a chain of segments: segment *i* is the conic flown between pulse *i* and pulse *i+1*.
@@ -176,11 +182,13 @@ The plan is a chain of segments: segment *i* is the conic flown between pulse *i
 - **Ghosts only for the selected or hovered pulse,** to avoid clutter: the full ellipse *before* that pulse is drawn faint (25% alpha, dotted) and the ellipse *after* it bright dashed. Other pulses show only their arrows.
 - **While dragging,** a snapshot of the path taken when the drag started stays as a faint ghost. Pulses after the dragged one are re-simulated live on the new path, so the player sees how one change ripples through the rest of the plan.
 
-**Readouts** (overlay): apoapsis, periapsis, period, eccentricity, ΔV left per engine, "inside danger zone" warnings. The plan is stored in `GameState.mission_plan` (`{launch: {engines, angle}, pulses: [{engine_id, theta, revs, dv_v, dv_b}]}`) and EXECUTION replays it.
+**Readouts** (overlay): apoapsis, periapsis, period, eccentricity, ΔV left per engine, "inside danger zone" warnings. The plan is stored in `GameState.plan`, a `MissionPlan` with `launch_stage_ids`, `launch_angle_radians` and `pulses`. Each `Pulse` has `stage_id`, `polar_angle_radians`, `extra_revolutions`, `delta_v_along_velocity_meters_per_second` and `delta_v_outward_meters_per_second`. EXECUTION replays it.
 
-## Keplerian dynamics (`autoload/Kepler.gd` behind `OrbitModel`)
-We write our own small 2D two-body solver. JR Orrery (MIT, ~12k lines, 3D/N-body/GPU) is overkill for the POC. `OrbitModel` (`predict_path(plan)`, `state_at(t)`, `apply_pulse`) keeps it swappable for future Moon/Jupiter missions.
-SI units, Earth μ = 3.986e14 and R = 6371 km: `tsiolkovsky_dv`, `stage_dv`, `vis_viva`, `circular_velocity`, `orbital_period`, `state_to_elements`, `elements_to_state`, `propagate` (Newton solve of Kepler's equation), `apply_pulse(state, dv_v, dv_b)` (instant velocity change), `launch_state(site, speed, angle)`, `hits_surface(path)`, `solid_pulse_dv`, `liquid_dv_available`, `propellant_for_dv`.
+## Keplerian dynamics (`scripts/orbit/Kepler.gd` behind `OrbitModel`)
+We write our own small 2D two-body solver. JR Orrery (MIT, ~12k lines, 3D/N-body/GPU) is overkill for the POC. `OrbitModel` (`build_trajectory`, `state_at_time`, `sample_segment_points`) keeps it swappable for future Moon/Jupiter missions.
+SI units, Earth gravitational parameter 3.986×10¹⁴ m³/s² and radius 6371 km.
+- `Kepler` (orbits only): `elements_from_state`, `state_from_elements`, `propagate` (Newton solve of Kepler's equation), `apply_pulse` (instant velocity change), `launch_state`, `seconds_until_polar_angle`, `fraction_of_period_inside_band`, `circular_speed_meters_per_second`, `orbital_period_seconds`, `altitude_meters`, `flight_path_angle_radians`.
+- `RocketModel` (masses only): `delta_v_from_rocket_equation`, `propellant_needed_for_delta_v`, `available_delta_v_meters_per_second`, `apply_burn`, `summarize_plan`.
 
 ### State representation and special cases (following GMAT)
 GMAT derives orbital elements from the Cartesian state `(r, v)` (GMAT Mathematical Specifications, draft, §4.1.2 "Cartesian State to Keplerian Elements"). We do the same: `OrbitModel` stores `(r, v)` after every pulse as the truth, and elements are recomputed from it. In 2D every orbit is GMAT's "equatorial" case (`i = 0`, `Ω = 0`), which leaves two of GMAT's four cases, split at its threshold `e = 10⁻¹¹` (Table 4.3):
@@ -203,11 +211,11 @@ The orbit is open when the specific energy `ξ = v²/2 − μ/r` is ≥ 0 (that 
 ## How GMAT is used
 GMAT does not run inside Godot. For now it's a reference for data and conventions only:
 1. **Part fields mirror GMAT** (`DryMass`, `FuelMass`, `Isp`, tank `Pressure`/`Temperature`/`PressureModel`), so our ΔV/mass math matches GMAT's `DecrementMass`.
-2. **Pulses = GMAT `ImpulsiveBurn` in the VNB frame.** In 2D we use V (along velocity) and B (in-plane perpendicular). `Pulse.gd` stores `dv_v`/`dv_b`, and the arrow UI converts to and from them.
+2. **Pulses = GMAT `ImpulsiveBurn` in the VNB frame.** In 2D we use V (along velocity) and B (in-plane perpendicular). `Pulse.gd` stores `delta_v_along_velocity_meters_per_second` and `delta_v_outward_meters_per_second`, and the arrow on screen converts to and from them.
 3. **Element conversion and its special cases** (circular orbits, open orbits) follow the GMAT Mathematical Specifications §4.1.2; see "State representation and special cases". Source: NASA GSFC draft, https://ntrs.nasa.gov/citations/20080031744.
 
 ## Execution instruments (driven by TEL parts)
-Sim loop: Kepler propagation, with pulses applied at their points. `TelemetryFeed` degrades the true state per installed instrument (`range_km`, `noise`, `update_hz`, `resolution` 0 blip / 1 distance+bearing / 2 shape+relative velocity, `dropout`). Panels only see degraded data. Missing sensor → "NO SENSOR".
+Sim loop: Kepler propagation, with pulses applied at their points. `TelemetryFeed` degrades the true state per installed instrument (`range_kilometers`, `noise_fraction`, `updates_per_second`, `resolution_level` 0 blip / 1 distance+bearing / 2 shape+relative velocity, `dropout_probability`). Panels only see degraded data. Missing sensor → "NO SENSOR".
 - **RADAR (TEL proximity radar):** reveals specific objects (debris pieces, asteroid) inside the planning danger zones as the craft gets close. Cheap = noisy short-range blips. Expensive = object outlines, distance, closing speed, at longer range.
 - **Angles θ γ:** θ is the attitude (where the nose points, relative to the local horizontal) and γ is the flight-path angle (where the velocity points, relative to the local horizontal). The craft turns to each pulse direction before firing. Noise and refresh rate scale with the attitude-sensor tier.
 - **Altitude, Fuel:** noise and refresh rate scale with the tier.
@@ -222,7 +230,7 @@ A 400 km orbit takes about 92 minutes, so EXECUTION has explicit time controls n
 - Position comes from the closed-form Kepler solution, so warp adds no error. Threat and collision checks run on fixed sub-steps of simulated time (for example 5 s), so a fast warp cannot jump over a close approach.
 
 ## Science data and the data link
-A science instrument produces data only while it is working and inside its science zone, at the rate given by its `data` stat. The data counts for the score only once it is delivered to the ground. Delivery goes through one interface, `DataLink.deliver(generated, state, dt)`, with two implementations:
+A science instrument produces data only while it is working and inside its science zone, at the rate given by its `data` stat. The data counts for the score only once it is delivered to the ground. Delivery goes through one interface, `DataLink.deliver(generated_megabits, state, step_seconds)`, with two implementations:
 
 | Version | When | Behaviour |
 |---|---|---|
@@ -240,7 +248,7 @@ The score uses `delivered` in both versions, so switching versions changes no sc
 ## Random events during EXECUTION
 Execution isn't just watching the plan play out. An `EventDirector` throws random events at the mission, and the player can react with an **emergency pulse** paid from the **reserve ΔV**.
 
-### Event catalogue (`data/events.json`, easy to extend)
+### Event catalogue (`data/event_types.json`, easy to extend)
 | Event | What happens | How to save the mission |
 |---|---|---|
 | **Unknown asteroid** | An asteroid appears on an intercept course, with a time to impact | Pulse to change the orbit so the closest approach is > safe distance |
@@ -252,8 +260,8 @@ Execution isn't just watching the plan play out. An `EventDirector` throws rando
 | **Debris shower** | Several fragments while crossing the planning debris zone | One or more avoidance pulses |
 
 ### How it works
-- **When:** events are rolled during the flight (seeded RNG so a run can be replayed). Each event type has a rate that depends on where the craft is (see "Hazard rates by region"). The rate rises further inside the planning **danger zones** and with side quests. Each side quest in missions.json lists its **related event types** (e.g. "Debris survey" → debris shower, satellite conjunction). Accepting it raises those events' chance a lot (`related_multiplier`, e.g. ×3) and all other events only slightly (`unrelated_bonus`, e.g. +5%). Each event also has a `weight`, `min_time` and `in_zone_multiplier` in events.json.
-- **Detection depends on the instruments:** the warning time before impact scales with the TEL radar's `range_km`. A cheap radar spots the asteroid late (little time, more ΔV needed). With no radar, the first warning is the ALARM a few seconds before impact. This is the payoff of buying good telemetry in Rocket Design.
+- **When:** events are rolled during the flight (seeded RNG so a run can be replayed). Each event type has a rate that depends on where the craft is (see "Hazard rates by region"). The rate rises further inside the planning **danger zones** and with side quests. Each side quest in missions.json lists its **related event types** (e.g. "Debris survey" → debris shower, satellite conjunction). Accepting it raises those events' chance a lot (`related_multiplier`, e.g. ×3) and all other events only slightly (`unrelated_bonus`, e.g. +5%). Each event also has a `weight`, `earliest_time_seconds` and `inside_zone_multiplier` in event_types.json.
+- **Detection depends on the instruments:** the warning time before impact scales with the TEL radar's `range_kilometers`. A cheap radar spots the asteroid late (little time, more ΔV needed). With no radar, the first warning is the ALARM a few seconds before impact. This is the payoff of buying good telemetry in Rocket Design.
 - **Alert:** ALARM flashes, the sim **slows to 1× and pauses** on the first alert, and an **Emergency Maneuver overlay** opens over the radar monitor. It's a mini orbit view showing the threat's predicted path, the craft's path, the closest-approach point and the miss distance.
 - **Reacting:** the player picks an available engine from the reserve. Same rules as planning: **solid = one point, direction only, fixed ΔV; liquid = choose direction + ΔV**. The miss distance and the new orbit update live while dragging (same `PathRenderer`/`Kepler` code), and pressing EXECUTE fires the pulse. The rest of the plan is re-simulated from the new orbit, so the player sees whether the objective is still reachable with the remaining ΔV.
 - **Outcome:**
@@ -323,7 +331,7 @@ Green-on-black CRT monitor frames and bezels, arrow tabs, stat chip frames, part
   - `godot --headless --quit-after 120 <scene>` for each scene
   
   All must be clean before a commit.
-- **Physics tests (`tests/test_kepler.gd`).** A script that extends `SceneTree`, runs with `godot --headless --script tests/test_kepler.gd`, prints PASS/FAIL per check and exits with a non-zero code on any failure. Checks, with μ = 3.986004×10¹⁴ m³/s² and R = 6371 km:
+- **Physics tests (`tests/test_kepler.gd`).** Run through the shared test scene, `godot --headless res://tests/TestRunner.tscn`, which runs every `tests/test_*.gd`, prints PASS/FAIL per check and exits with a non-zero code on any failure. Checks, with μ = 3.986004×10¹⁴ m³/s² and R = 6371 km:
   - Circular orbit at 400 km: speed ≈ 7672.6 m/s, period ≈ 5545 s (92.4 min).
   - Hohmann transfer from 400 km to 800 km: pulses ≈ 109.3 m/s and ≈ 107.7 m/s.
   - Tsiolkovsky: 100 kg of propellant at Isp 300 s gives ≈ 99.7 m/s from 3,000 kg and ≈ 310.0 m/s from 1,000 kg.

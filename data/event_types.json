@@ -1,0 +1,11 @@
+[
+	{
+		"id": "satellite_conjunction",
+		"name": "Satellite conjunction",
+		"kind": "threat",
+		"description": "Placeholder: another satellite is predicted to pass dangerously close.",
+		"weight": 1.0,
+		"earliest_time_seconds": 600,
+		"inside_zone_multiplier": 3.0
+	}
+]
