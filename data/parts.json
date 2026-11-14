@@ -470,10 +470,11 @@
 		"dry_mass_kilograms": 30,
 		"icon_path": "res://assets/placeholders/parts/science_camera_basic.png",
 		"tradeoff": "Light and cheap, with a modest data rate.",
-		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values.",
+		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values. The mission_fit ratings are game values.",
 		"is_approximate": true,
 		"mission_fit": {
-			"earth_imaging": 2
+			"earth_imaging": 2,
+			"space_weather": 0
 		},
 		"stats": {
 			"power_watts": 20,
@@ -490,10 +491,11 @@
 		"dry_mass_kilograms": 80,
 		"icon_path": "res://assets/placeholders/parts/science_camera_high_resolution.png",
 		"tradeoff": "Sharp pictures and a lot of data, for more mass, power and money.",
-		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values.",
+		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values. The mission_fit ratings are game values.",
 		"is_approximate": true,
 		"mission_fit": {
-			"earth_imaging": 3
+			"earth_imaging": 3,
+			"space_weather": 0
 		},
 		"stats": {
 			"power_watts": 60,
@@ -510,10 +512,11 @@
 		"dry_mass_kilograms": 0.3,
 		"icon_path": "res://assets/placeholders/parts/science_magnetometer.png",
 		"tradeoff": "Measures the magnetic field for space-weather science; of no use for pictures.",
-		"source": "Mass in the range of small-satellite magnetometers (0.006 to 0.33 kg); NASA State-of-the-Art of Small Spacecraft Technology, chapter 5 (Guidance, Navigation and Control). Power, data rate, science value and cost are game values.",
+		"source": "Mass in the range of small-satellite magnetometers (0.006 to 0.33 kg); NASA State-of-the-Art of Small Spacecraft Technology, chapter 5 (Guidance, Navigation and Control). Power, data rate, science value and cost are game values. The mission_fit ratings are game values.",
 		"is_approximate": true,
 		"mission_fit": {
-			"earth_imaging": 0
+			"earth_imaging": 0,
+			"space_weather": 3
 		},
 		"stats": {
 			"power_watts": 1,
@@ -530,10 +533,11 @@
 		"dry_mass_kilograms": 2,
 		"icon_path": "res://assets/placeholders/parts/science_atmosphere_probe.png",
 		"tradeoff": "Samples the thin upper atmosphere; wants a low orbit.",
-		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values.",
+		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values. The mission_fit ratings are game values.",
 		"is_approximate": true,
 		"mission_fit": {
-			"earth_imaging": 0
+			"earth_imaging": 0,
+			"space_weather": 2
 		},
 		"stats": {
 			"power_watts": 3,
@@ -550,10 +554,11 @@
 		"dry_mass_kilograms": 100,
 		"icon_path": "res://assets/placeholders/parts/science_imaging_radar.png",
 		"tradeoff": "Maps the surface through cloud and at night, but is the heaviest and hungriest instrument.",
-		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values.",
+		"source": "Estimate for an instrument of this class on a small satellite, not taken from one instrument; see NASA CubeSat 101 and the NASA State-of-the-Art of Small Spacecraft Technology report for the class. All values are game values. The mission_fit ratings are game values.",
 		"is_approximate": true,
 		"mission_fit": {
-			"earth_imaging": 3
+			"earth_imaging": 3,
+			"space_weather": 0
 		},
 		"stats": {
 			"power_watts": 400,
