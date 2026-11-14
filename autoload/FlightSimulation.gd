@@ -40,6 +40,7 @@ var _plan: MissionPlan
 var _burnout_state: OrbitState
 var _coast_segment: TrajectorySegment
 var _flight_number: int = 0
+var _is_finalizing_physical_end: bool = false
 var _next_pulse_index: int = 0
 var _next_launch_stage_index: int = 0
 var _launch_stage: Stage
@@ -71,6 +72,7 @@ var _telemetry_feed: TelemetryFeed
 ## Starts a fresh flight from the launch pad and seeds its instrument sampling.
 func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, random_seed: int) -> void:
 	_flight_number += 1
+	_is_finalizing_physical_end = false
 	var launch_design := design.duplicate_design()
 	_plan = plan.duplicate_plan()
 	_body = GameData.body(mission.get("body_id", "earth")).duplicate(true)
@@ -123,7 +125,7 @@ func pause() -> void:
 
 ## Fires at the current orbital position and returns the actual engine outcome.
 func apply_emergency_pulse(pulse: Pulse) -> BurnOutcome:
-	if not is_flying or _launch_stage != null:
+	if not is_flying or _launch_stage != null or _is_finalizing_physical_end:
 		return BurnOutcome.new()
 	var outcome := _apply_pulse(pulse)
 	if outcome.did_fire:
@@ -154,13 +156,15 @@ func log_event(event_record: Dictionary) -> void:
 
 ## Pauses the flight and emits the message for the control room.
 func raise_alert(alarm_code: String, message: String) -> void:
+	if _is_finalizing_physical_end:
+		return
 	pause()
 	alert_raised.emit(alarm_code, message)
 
 
 ## Ends the active flight and emits its result once.
 func end_flight(end_reason: FlightResult.EndReason) -> void:
-	if not is_flying:
+	if not is_flying or _is_finalizing_physical_end:
 		return
 	is_flying = false
 	_seconds_not_yet_simulated = 0.0
@@ -170,7 +174,9 @@ func end_flight(end_reason: FlightResult.EndReason) -> void:
 ## Advances by simulated seconds, accumulating any remainder between boundaries.
 ## A pause or automatic slowdown discards the unused budget from this call.
 func advance_simulation(seconds: float) -> void:
-	if not is_flying or time_scale == 0.0 or not is_finite(seconds) or seconds < 0.0:
+	if not is_flying or _is_finalizing_physical_end or time_scale == 0.0:
+		return
+	if not is_finite(seconds) or seconds < 0.0:
 		return
 	_seconds_not_yet_simulated += seconds
 	var flight_number := _flight_number
@@ -202,12 +208,18 @@ func advance_simulation(seconds: float) -> void:
 			if not is_flying or _flight_number != flight_number:
 				return
 		_sample_instruments()
+		var terminal_reason := _physical_end_reason()
 		if boundary_time_seconds == _next_step_time_seconds:
 			_next_step_time_seconds += SIMULATION_STEP_SECONDS
+			# A completed tick still emits before the result. Its listeners cannot
+			# change an impact or escape already reached at this boundary.
+			_is_finalizing_physical_end = terminal_reason >= 0
 			simulation_step.emit(SIMULATION_STEP_SECONDS)
 			if not is_flying or _flight_number != flight_number:
 				return
-		var terminal_reason := _physical_end_reason()
+			_is_finalizing_physical_end = false
+			if terminal_reason < 0:
+				terminal_reason = _physical_end_reason()
 		if terminal_reason >= 0:
 			end_flight(terminal_reason as FlightResult.EndReason)
 		elif simulation_time_seconds >= _mission_duration_seconds:

@@ -20,6 +20,7 @@ func run_tests(report: TestReport) -> void:
 	_check_radar(report)
 	_check_burns(report)
 	_check_terminal_reasons(report)
+	_check_terminal_tick_precedence(report)
 	GameState.mission = selected_mission
 	GameState.science_mission_id = selected_science_id
 	for part_id in [
@@ -207,6 +208,29 @@ func _check_terminal_reasons(report: TestReport) -> void:
 		report.check(results.size() == 1 and results[0].end_reason == reason, "external ending is preserved once")
 		if results.size() == 1:
 			report.check(results[0].event_log[0]["outcome"] == "logged", "result owns a copy of the event record")
+		flight.free()
+
+
+func _check_terminal_tick_precedence(report: TestReport) -> void:
+	for has_impact in [true, false]:
+		var flight := _start_flight([], 5.0 if has_impact else 200.0)
+		if has_impact:
+			flight._coast_segment.end_reason = TrajectorySegment.EndReason.IMPACT
+			flight._coast_segment.end_time_seconds = 5.0
+		var signal_order: Array[String] = []
+		var results: Array[FlightResult] = []
+		flight.simulation_step.connect(func(_seconds: float) -> void:
+			signal_order.append("step")
+			flight.end_flight(FlightResult.EndReason.COLLISION))
+		flight.flight_ended.connect(func(result: FlightResult) -> void:
+			signal_order.append("ended")
+			results.append(result))
+		flight.advance_simulation(10.0)
+		var expected_reason := FlightResult.EndReason.CRASHED if has_impact else FlightResult.EndReason.COLLISION
+		report.check(signal_order == ["step", "ended"], "the terminal tick and its result are emitted once")
+		report.check(results.size() == 1 and results[0].end_reason == expected_reason,
+				"impact outranks a same-tick collision and deadline" if has_impact
+				else "a collision on a non-impact tick still ends the flight")
 		flight.free()
 
 
