@@ -59,6 +59,15 @@ func _check_editing(report: TestReport) -> void:
 	var earth_texture: AtlasTexture = artwork_view.get("_earth_texture")
 	report.check(earth_texture != null and earth_texture.atlas.resource_path == ScreenLayout.ORBIT_PLANNING_BACKGROUND_PATH,
 			"dynamic Earth reuses Amit's supplied sprite")
+	var engine_rows: VBoxContainer = screen.get("_engine_rows")
+	var stage_card: Control = engine_rows.get_child(0) if engine_rows.get_child_count() > 0 else null
+	report.check(stage_card != null and stage_card.mouse_filter == Control.MOUSE_FILTER_PASS and not stage_card.tooltip_text.is_empty(),
+			"a stage card takes hover, so its tooltip can show, and passes the wheel on to its list")
+	if stage_card != null:
+		var stage_tooltip: Label = stage_card._make_custom_tooltip(stage_card.tooltip_text)
+		report.check(stage_tooltip != null and stage_tooltip.text.contains("\n"), "a stage card's tooltip is wrapped")
+		if stage_tooltip != null:
+			stage_tooltip.free()
 	var state: OrbitState = GameState.summary.ascent.orbit_entry_state
 	var body: Dictionary = GameData.body("earth")
 	var elements: OrbitElements = Kepler.elements_from_state(body[AscentPlanner.GRAVITATIONAL_PARAMETER_KEY], state)
