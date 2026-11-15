@@ -156,6 +156,9 @@ func _capture_final_bands() -> void:
 		GameState.score.band_name = band_name
 		_show("res://scenes/FinalScreen.tscn")
 		await _capture("final_band_" + band_name.to_lower().replace(" ", "_"))
+	_screen.show_flight_log(true)
+	_screen.select_event(3)
+	await _capture("final_flight_log")
 
 
 ## A scored flight a little off target, with a failed quest and five events.
