@@ -13,7 +13,14 @@ signal flight_started
 signal flight_ended(result: FlightResult)
 
 const SIMULATION_STEP_SECONDS := 5.0
-const ALLOWED_TIME_SCALES: Array[float] = [0.0, 1.0, 10.0, 100.0, 1000.0]
+## Simulated seconds per real second at normal speed, shown to the player as
+## "1x". Flights start at this speed and drop back to it before planned pulses
+## and after alerts.
+const NORMAL_TIME_SCALE := 1000.0
+## Speeds offered to the player, as multiples of NORMAL_TIME_SCALE.
+const SPEED_MULTIPLIERS: Array[float] = [0.5, 1.0, 2.0, 4.0, 8.0]
+## Pause followed by NORMAL_TIME_SCALE times each of SPEED_MULTIPLIERS.
+const ALLOWED_TIME_SCALES: Array[float] = [0.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]
 const PULSE_SLOWDOWN_LEAD_SECONDS := 2.0 * SIMULATION_STEP_SECONDS
 const LOW_FUEL_FRACTION := 0.1
 const AMBIENT_TEMPERATURE_KELVIN := 300.0
@@ -25,7 +32,7 @@ const TelemetryFeed = preload("res://scripts/flight/TelemetryFeed.gd")
 const DataLink = preload("res://scripts/flight/DataLink.gd")
 
 var is_flying: bool = false
-var time_scale: float = 1.0
+var time_scale: float = NORMAL_TIME_SCALE
 var simulation_time_seconds: float = 0.0
 ## True position and velocity for the flight and event modules.
 var craft_state: OrbitState
@@ -111,7 +118,7 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	simulation_time_seconds = 0.0
 	_next_step_time_seconds = SIMULATION_STEP_SECONDS
 	_seconds_not_yet_simulated = 0.0
-	time_scale = 1.0
+	time_scale = NORMAL_TIME_SCALE
 	_configure_science(mission)
 	_random.seed = random_seed
 	_telemetry_feed = TelemetryFeed.new(vehicle_state, _random)
@@ -204,7 +211,7 @@ func advance_simulation(seconds: float) -> void:
 	while is_flying and time_scale > 0.0 and _flight_number == flight_number:
 		var pulse_time_seconds: float = minf(_next_planned_pulse_time_seconds(), _automatic_insertion_time_seconds)
 		var slowdown_time_seconds := INF
-		if time_scale > 1.0 and is_finite(pulse_time_seconds):
+		if time_scale > NORMAL_TIME_SCALE and is_finite(pulse_time_seconds):
 			slowdown_time_seconds = maxf(simulation_time_seconds, pulse_time_seconds - PULSE_SLOWDOWN_LEAD_SECONDS)
 		var boundary_time_seconds := minf(_next_step_time_seconds, _mission_duration_seconds)
 		boundary_time_seconds = minf(boundary_time_seconds, _launch_stage_ends_at_seconds)
@@ -220,7 +227,7 @@ func advance_simulation(seconds: float) -> void:
 		_advance_to(boundary_time_seconds)
 		var did_slow_down := boundary_time_seconds == slowdown_time_seconds
 		if did_slow_down:
-			time_scale = 1.0
+			time_scale = NORMAL_TIME_SCALE
 			_seconds_not_yet_simulated = 0.0
 		if boundary_time_seconds == _launch_stage_ends_at_seconds:
 			_finish_launch_stage()

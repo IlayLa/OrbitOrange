@@ -33,7 +33,7 @@ func _ready() -> void:
 	_flight.telemetry_updated.connect(_on_telemetry_updated)
 	_flight.flight_ended.connect(_on_flight_ended)
 	%Restart.pressed.connect(_start_demo)
-	%FastForward.pressed.connect(_flight.set_time_scale.bind(100.0))
+	%FastForward.pressed.connect(_flight.set_time_scale.bind(8.0 * FlightSimulation.NORMAL_TIME_SCALE))
 	_start_demo.call_deferred()
 
 
@@ -104,7 +104,8 @@ func _remaining_delta_v_meters_per_second() -> float:
 
 
 func _on_telemetry_updated(frame: TelemetryFrame) -> void:
-	%Clock.text = "Mission time   %.0f s  ·  %.0f×" % [frame.simulation_time_seconds, frame.time_scale]
+	%Clock.text = "Mission time   T+ %s  ·  %s" % [ReadingFormat.mission_time_text(frame.simulation_time_seconds),
+			ReadingFormat.time_scale_label(frame.time_scale)]
 	%Reserve.text = "Reserve   %.2f m/s" % frame.delta_v_remaining_meters_per_second
 	if frame.delta_v_remaining_meters_per_second < _reserve_before_burn_meters_per_second - 0.001:
 		%Reserve.text += "   (was %.2f m/s)" % _reserve_before_burn_meters_per_second

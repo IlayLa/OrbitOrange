@@ -36,7 +36,7 @@ func run_tests(report: TestReport) -> void:
 
 
 func _check_timing(report: TestReport) -> void:
-	for scale_factor in [1.0, 1000.0]:
+	for scale_factor in [500.0, 8000.0]:
 		var flight := _start_flight([], 17.5)
 		var steps: Array[float] = []
 		var results: Array[FlightResult] = []
@@ -140,9 +140,9 @@ func _check_burns(report: TestReport) -> void:
 	flight.pulse_fired.connect(func(pulse_index: int, outcome: BurnOutcome) -> void:
 		indices.append(pulse_index)
 		outcomes.append(outcome))
-	flight.set_time_scale(1000.0)
+	flight.set_time_scale(8000.0)
 	flight._process(1.0)
-	report.check(flight.time_scale == 1.0, "planned pulse drops warp to normal speed")
+	report.check(flight.time_scale == Flight.NORMAL_TIME_SCALE, "planned pulse drops warp to normal speed (1x)")
 	report.check_close(flight.simulation_time_seconds, 12.5, 0.0001, "unused warp is discarded ten seconds before the pulse")
 	var speed_before_meters_per_second := flight.craft_state.speed_meters_per_second()
 	flight.advance_simulation(10.0)

@@ -529,7 +529,7 @@ func _on_alert_scene_exiting() -> void:
 	# Clearing the current encounter invalidates both callbacks immediately.
 	_close_active_alert()
 	if _is_session_active and _flight.is_flying:
-		_flight.set_time_scale(1.0)
+		_flight.set_time_scale(FlightSimulation.NORMAL_TIME_SCALE)
 
 
 func _resume_after_alert() -> void:
@@ -537,7 +537,7 @@ func _resume_after_alert() -> void:
 	if _can_start_event(time_seconds):
 		_surface_alert(time_seconds)
 	if active_encounter.is_empty() and _flight.is_flying:
-		_flight.set_time_scale(1.0)
+		_flight.set_time_scale(FlightSimulation.NORMAL_TIME_SCALE)
 
 
 func _log_event(event_type_id: String, time_seconds: float, outcome: String, explanation: String) -> int:

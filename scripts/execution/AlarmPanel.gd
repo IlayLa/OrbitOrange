@@ -5,7 +5,7 @@ extends Control
 ## shown until the player dismisses it: with OK, or by resuming the flight.
 ## raise_alert always pauses the flight, so a frame that runs again means the
 ## alert was handled, for example in T07's emergency overlay, which resumes
-## at 1x. Pressing OK does not resume the flight.
+## at normal speed (1x). Pressing OK does not resume the flight.
 ##
 ## The lit lamp is cut out of the existing mock-up execution_screen_alarm.png;
 ## the unlit lamp is part of the background picture.

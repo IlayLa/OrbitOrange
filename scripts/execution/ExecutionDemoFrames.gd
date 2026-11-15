@@ -9,7 +9,7 @@ const STATE_NAMES: Array[String] = [
 	"3 sensors installed but failed",
 	"4 three radar contacts, levels 0 1 2",
 	"5 alarms active and an alert",
-	"6 launch burn, 1000x",
+	"6 launch burn, 8x",
 	"7 paused, no pulse left",
 	"8 threat approaching",
 	"9 threat alert",
@@ -18,12 +18,12 @@ const STATE_NAMES: Array[String] = [
 ]
 ## What a person should see in each state, shown by the demo. One per state.
 const CHECK_HINTS: Array[String] = [
-	"Clock runs. Press II 1x 10x 100x 1000x: the lit button follows. Δv LEFT is bottom centre, FUEL is top of the left column.",
+	"Clock runs. Press II 0.5x 1x 2x 4x 8x: the lit button follows. T+ reads years, months, days, hours. Δv LEFT is bottom centre, FUEL is top of the left column.",
 	"Every instrument, the radar and FUEL read NO SENSOR. Δv still shows: it needs no sensor.",
 	"Every instrument and FUEL read NO SIGNAL. The radar shows no contacts.",
 	"Blip only (level 0); blip + km (level 1); ring + type, km and m/s (level 2). Ring 50 km.",
 	"Lamp flashes, LOW FUEL and OVER TEMPERATURE listed, alert box until OK.",
-	"ACC 2.50 g ENGINE ON, θ +30.0°, γ +25.0°, 1000x lit.",
+	"ACC 2.50 g ENGINE ON, θ +30.0°, γ +25.0°, 8x lit.",
 	"II lit, Next pulse in none, Δv 0 m/s.",
 	"A contact closes from 240 to 3 km. It moves steadily inward; the ring never shrinks.",
 	"Paused with THREAT APPROACHING. Press 1x: the alert clears, as after T07's overlay.",
@@ -111,7 +111,7 @@ static func reading(is_installed: bool, is_working: bool, value: float, tier: in
 static func _nominal() -> TelemetryFrame:
 	var frame := TelemetryFrame.new()
 	frame.simulation_time_seconds = 1800.0
-	frame.time_scale = 1.0
+	frame.time_scale = FlightSimulation.NORMAL_TIME_SCALE
 	frame.delta_v_remaining_meters_per_second = 4440.0
 	frame.seconds_until_next_pulse = 1234.0
 	frame.data_generated_megabits = 3.2
@@ -142,7 +142,7 @@ static func _sensors_failed() -> TelemetryFrame:
 
 static func _radar_contacts() -> TelemetryFrame:
 	var frame := _nominal()
-	frame.time_scale = 10.0
+	frame.time_scale = 2.0 * FlightSimulation.NORMAL_TIME_SCALE
 	frame.radar_contacts.append({
 		"bearing_radians": deg_to_rad(45.0), "range_meters": 18000.0,
 		"closing_speed_meters_per_second": 0.0, "resolution_level": 0, "event_type_id": "",
@@ -172,7 +172,7 @@ static func _alarms() -> TelemetryFrame:
 static func _launch_burn() -> TelemetryFrame:
 	var frame := _nominal()
 	frame.simulation_time_seconds = 40.0
-	frame.time_scale = 1000.0
+	frame.time_scale = 8.0 * FlightSimulation.NORMAL_TIME_SCALE
 	frame.delta_v_remaining_meters_per_second = 7900.0
 	frame.seconds_until_next_pulse = 2650.0
 	frame.data_generated_megabits = 0.0

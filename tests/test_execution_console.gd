@@ -70,10 +70,21 @@ func _check_reading_format(report: TestReport) -> void:
 			"a working sensor shows its value")
 	report.check_close(ReadingFormat.acceleration_in_g(9.80665), 1.0, 1.0e-12,
 			"9.80665 m/s² is exactly 1 g")
-	report.check(ReadingFormat.duration_text(INF) == "none", "no pulse left reads \"none\"")
-	report.check(ReadingFormat.duration_text(3725.9) == "1:02:05", "3725.9 s reads 1:02:05")
-	report.check(ReadingFormat.time_scale_label(0.0) == "II" and ReadingFormat.time_scale_label(100.0) == "100x",
-			"time-scale labels are II for pause and 100x for 100")
+	report.check(ReadingFormat.countdown_text(INF) == "none", "no pulse left reads \"none\"")
+	report.check(ReadingFormat.countdown_text(93_000.0 + 7 * 60 + 59.9) == "1D 01H 57M",
+			"93 479.9 s counts down as 1D 01H 57M")
+	report.check(ReadingFormat.mission_time_text(0.0) == "0Y 00M 00D 00H", "launch reads 0Y 00M 00D 00H")
+	report.check(ReadingFormat.mission_time_text(3725.9) == "0Y 00M 00D 01H", "3725.9 s reads 0Y 00M 00D 01H")
+	var hours_to_seconds := func(hours: float) -> float: return hours * 3600.0
+	report.check(ReadingFormat.mission_time_text(hours_to_seconds.call(730.0 + 2 * 24 + 5)) == "0Y 01M 02D 05H",
+			"one month (730 h), 2 days and 5 hours reads 0Y 01M 02D 05H")
+	report.check(ReadingFormat.mission_time_text(hours_to_seconds.call(8760.0 * 2 + 730.0 * 11 + 29)) == "2Y 11M 01D 05H",
+			"two years, eleven months and 29 hours reads 2Y 11M 01D 05H")
+	report.check(ReadingFormat.mission_time_text(INF) == ReadingFormat.NO_DATA_TEXT, "an infinite time reads --")
+	var normal := FlightSimulation.NORMAL_TIME_SCALE
+	report.check(ReadingFormat.time_scale_label(0.0) == "II" and ReadingFormat.time_scale_label(normal) == "1x"
+			and ReadingFormat.time_scale_label(0.5 * normal) == "0.5x" and ReadingFormat.time_scale_label(8.0 * normal) == "8x",
+			"time-scale labels are II for pause and relative to 1x = %.0f simulated seconds per second" % normal)
 	report.check(ReadingFormat.alarm_text("LOW_FUEL") == "LOW FUEL"
 			and ReadingFormat.alarm_text("THREAT_APPROACH") == "THREAT APPROACHING"
 			and ReadingFormat.alarm_text("NEW_CODE") == "NEW_CODE",
@@ -139,7 +150,7 @@ func _check_angles_and_acceleration(report: TestReport, console: ExecutionConsol
 func _check_clock_and_objectives(report: TestReport, console: ExecutionConsole) -> void:
 	console.display_frame(ExecutionDemoFrames.frame_for_state(ExecutionDemoFrames.STATE_PAUSED_NO_PULSE))
 	var clock_text := console.clock_panel.clock_text()
-	report.check(clock_text.contains("T+ 1:30:00") and clock_text.contains("none"),
+	report.check(clock_text.contains("T+ 0Y 00M 00D 01H") and clock_text.contains("none"),
 			"the clock shows mission time and \"none\" when no pulse is left (got %s)" % clock_text.replace("\n", " | "))
 	var objectives_text := console.objectives_panel.shown_text()
 	report.check(objectives_text.contains("FUEL 1830 kg") and objectives_text.contains("14.5 Mb generated")
@@ -238,13 +249,17 @@ func _check_time_controls(report: TestReport, console: ExecutionConsole) -> void
 	report.check(buttons.size() == FlightSimulation.ALLOWED_TIME_SCALES.size(),
 			"there is one time-control button per allowed time scale")
 	console.display_frame(ExecutionDemoFrames.frame_for_state(ExecutionDemoFrames.STATE_LAUNCH_BURN))
-	report.check_close(clock.highlighted_time_scale(), 1000.0, 0.0, "the 1000x button is highlighted for a 1000x frame")
+	report.check_close(clock.highlighted_time_scale(), 8000.0, 0.0, "the 8x button is highlighted for an 8x frame")
+	var labels: Array[String] = []
+	for button in buttons:
+		labels.append(button.text)
+	report.check(labels == ["II", "0.5x", "1x", "2x", "4x", "8x"], "the time controls read II 0.5x 1x 2x 4x 8x (%s)" % [labels])
 	console.display_frame(ExecutionDemoFrames.frame_for_state(ExecutionDemoFrames.STATE_PAUSED_NO_PULSE))
 	report.check_close(clock.highlighted_time_scale(), 0.0, 0.0, "the pause button is highlighted for a paused frame")
 
-	var ten_times_index := FlightSimulation.ALLOWED_TIME_SCALES.find(10.0)
-	buttons[ten_times_index].pressed.emit()
-	report.check_close(FlightSimulation.time_scale, 10.0, 0.0, "pressing 10x sets the flight time scale to 10")
+	var two_times_index := FlightSimulation.ALLOWED_TIME_SCALES.find(2000.0)
+	buttons[two_times_index].pressed.emit()
+	report.check_close(FlightSimulation.time_scale, 2000.0, 0.0, "pressing 2x sets the flight time scale to 2000")
 	buttons[FlightSimulation.ALLOWED_TIME_SCALES.find(0.0)].pressed.emit()
 	report.check_close(FlightSimulation.time_scale, 0.0, 0.0, "pressing pause pauses the flight")
 
@@ -301,7 +316,7 @@ func _check_demo_runs(report: TestReport) -> void:
 	# Scenario 9: pressing 1x resumes the flight and clears the threat alert.
 	demo.call("_show_state", ExecutionDemoFrames.STATE_THREAT_ALERT)
 	var alert_was_shown := console.alarm_panel.is_alert_shown() and console.alarm_panel.shown_text().contains("THREAT APPROACHING")
-	var one_times_index := FlightSimulation.ALLOWED_TIME_SCALES.find(1.0)
+	var one_times_index := FlightSimulation.ALLOWED_TIME_SCALES.find(FlightSimulation.NORMAL_TIME_SCALE)
 	console.clock_panel.time_scale_buttons()[one_times_index].pressed.emit()
 	demo.call("_process", 0.016)
 	report.check(alert_was_shown and not console.alarm_panel.is_alert_shown(),

@@ -174,7 +174,7 @@ func _check_radar_and_queue(report: TestReport) -> void:
 	flight.advance_simulation(160.0)
 	report.check(alerts.size() == 2 and later.is_revealed and earlier.is_revealed,
 			"persistently revealed contacts never trigger the same alert twice")
-	report.check(flight.time_scale == 1.0 and flight.threats.is_empty()
+	report.check(flight.time_scale == FlightSimulation.NORMAL_TIME_SCALE and flight.threats.is_empty()
 			and flight.event_log.size() == 2
 			and flight.event_log[0]["outcome"] == "Threat avoided" and flight.event_log[1]["outcome"] == "Threat avoided",
 			"Ignoring both near misses resumes at 1× and resolves both event rows")
@@ -237,7 +237,7 @@ func _check_emergency_burn(report: TestReport) -> void:
 			"a stage that fails between preview and execution leaves flight paused with its alert")
 	flight.vehicle_state.has_failed_by_stage[stage_id] = false
 	var fired: BurnOutcome = director.acknowledge_alert(pulse)
-	report.check(fired != null and fired.did_fire and flight.time_scale == 1.0,
+	report.check(fired != null and fired.did_fire and flight.time_scale == FlightSimulation.NORMAL_TIME_SCALE,
 			"a successful Execute fires and resumes flight at 1×")
 	if fired != null and fired.did_fire:
 		var candidate_state := OrbitModel.state_at_time(body, preview, flight.simulation_time_seconds)
@@ -358,13 +358,14 @@ func _check_terminal_precedence(report: TestReport) -> void:
 
 
 func _check_real_warp_replay(report: TestReport) -> void:
-	var earlier := _warp_fixture_events(1.0)
-	var warped := _warp_fixture_events(1000.0)
+	# One fixed tick per frame at 0.5x against the whole replay in one 8x frame.
+	var earlier := _warp_fixture_events(FlightSimulation.ALLOWED_TIME_SCALES[1], STEP_SECONDS)
+	var warped := _warp_fixture_events(FlightSimulation.ALLOWED_TIME_SCALES.back(), INF)
 	report.check(earlier.size() >= 2, "the seed and rate chosen for the warp fixture roll multiple events")
-	report.check(earlier == warped, "1× and 1000× reproduce exact event ids, times, targets and outcomes")
+	report.check(earlier == warped, "0.5x tick by tick and 8x in one frame reproduce exact event ids, times, targets and outcomes")
 
 
-func _warp_fixture_events(scale_factor: float) -> Array[Dictionary]:
+func _warp_fixture_events(scale_factor: float, simulated_seconds_per_frame: float) -> Array[Dictionary]:
 	var fixture := _orbital_flight([RADAR_ADVANCED], false, true)
 	var flight: Flight = fixture["flight"]
 	var director: Director = fixture["director"]
@@ -381,7 +382,7 @@ func _warp_fixture_events(scale_factor: float) -> Array[Dictionary]:
 			director.acknowledge_alert()
 		flight.set_time_scale(scale_factor)
 		var elapsed_seconds := flight.simulation_time_seconds - start_seconds
-		var simulated_seconds := minf(scale_factor * STEP_SECONDS, REPLAY_SECONDS - elapsed_seconds)
+		var simulated_seconds := minf(simulated_seconds_per_frame, REPLAY_SECONDS - elapsed_seconds)
 		flight._process(simulated_seconds / scale_factor)
 	var rows: Array[Dictionary] = flight.event_log.duplicate(true)
 	_free_fixture(fixture)
