@@ -34,6 +34,15 @@ var trajectory: Trajectory
 var threats: Array[Threat] = []
 var event_log: Array[Dictionary] = []
 
+var _automatic_mission: Dictionary = {}
+var _automatic_departure_requested_meters_per_second: float = 0.0
+var _automatic_departure_delivered_meters_per_second: float = 0.0
+var _automatic_stage_request_meters_per_second: float = 0.0
+var _automatic_insertion_pending: bool = false
+var _automatic_insertion_time_seconds: float = INF
+var _readout_stages: Array[Dictionary] = []
+var _last_source_stage_id: int = 0
+
 var _body: Dictionary
 var _plan: MissionPlan
 var _burnout_state: OrbitState
@@ -76,7 +85,15 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	_body = GameData.body(mission.get("body_id", "earth")).duplicate(true)
 	_mission_duration_seconds = maxf(0.0, mission.get("duration_seconds", 0.0))
 	vehicle_state = RocketModel.create_vehicle_state(launch_design)
-	trajectory = PlanResolver.resolve(launch_design, _plan, mission).trajectory
+	var resolved: ResolvedPlan = PlanResolver.resolve(launch_design, _plan, mission)
+	trajectory = resolved.trajectory
+	_automatic_mission = mission.duplicate(true)
+	_automatic_departure_delivered_meters_per_second = 0.0
+	_automatic_insertion_pending = _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC
+	_automatic_insertion_time_seconds = INF
+	_readout_stages.clear()
+	_last_source_stage_id = 0
+	_automatic_departure_requested_meters_per_second = resolved.summary.ascent.departure.requested_delta_v_meters_per_second if resolved.summary.ascent != null else 0.0
 	var first_segment: TrajectorySegment = null if trajectory.segments.is_empty() else trajectory.segments[0]
 	_burnout_state = (
 			OrbitModel.state_at_time(_body, trajectory, 0.0) if first_segment == null
@@ -105,6 +122,13 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	_begin_next_launch_stage()
 	is_flying = true
 	flight_started.emit()
+	if resolved.summary.ascent != null and not resolved.summary.ascent.can_lift_off:
+		end_flight(FlightResult.EndReason.LAUNCH_FAILURE)
+
+
+## Whether this flight derives burn stages from the sequential stack.
+func uses_automatic_staging() -> bool:
+	return _plan != null and _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC
 
 
 ## Sets simulated seconds per real second to one of the allowed scales.
@@ -178,7 +202,7 @@ func advance_simulation(seconds: float) -> void:
 	_seconds_not_yet_simulated += seconds
 	var flight_number := _flight_number
 	while is_flying and time_scale > 0.0 and _flight_number == flight_number:
-		var pulse_time_seconds := _next_planned_pulse_time_seconds()
+		var pulse_time_seconds: float = minf(_next_planned_pulse_time_seconds(), _automatic_insertion_time_seconds)
 		var slowdown_time_seconds := INF
 		if time_scale > 1.0 and is_finite(pulse_time_seconds):
 			slowdown_time_seconds = maxf(simulation_time_seconds, pulse_time_seconds - PULSE_SLOWDOWN_LEAD_SECONDS)
@@ -201,6 +225,7 @@ func advance_simulation(seconds: float) -> void:
 		if boundary_time_seconds == _launch_stage_ends_at_seconds:
 			_finish_launch_stage()
 		if _physical_end_reason() < 0 and simulation_time_seconds < _mission_duration_seconds:
+			_fire_automatic_insertion()
 			_fire_due_planned_pulses()
 			if not is_flying or _flight_number != flight_number:
 				return
@@ -259,6 +284,9 @@ func _state_on_coast(time_seconds: float) -> OrbitState:
 
 
 func _begin_next_launch_stage() -> void:
+	if _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
+		_begin_automatic_departure_stage()
+		return
 	while _next_launch_stage_index < _plan.launch_stage_ids.size():
 		var stage_id := _plan.launch_stage_ids[_next_launch_stage_index]
 		_next_launch_stage_index += 1
@@ -288,6 +316,14 @@ func _begin_next_launch_stage() -> void:
 
 
 func _finish_launch_stage() -> void:
+	if _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
+		var allocation: BurnAllocation = SequentialPropulsion.apply_burn(vehicle_state, _automatic_stage_request_meters_per_second)
+		_automatic_departure_delivered_meters_per_second += allocation.outcome.delta_v_delivered_meters_per_second
+		_record_allocation_readout(allocation, craft_state, "Automatic departure")
+		_launch_stage = null
+		_launch_stage_ends_at_seconds = INF
+		_begin_automatic_departure_stage()
+		return
 	var stage_id := _launch_stage.stage_id
 	var available_delta_v_meters_per_second := RocketModel.available_delta_v_meters_per_second(vehicle_state, stage_id)
 	if available_delta_v_meters_per_second > 0.0:
@@ -307,6 +343,9 @@ func _mass_at_ignition_kilograms(stage_id: int) -> float:
 
 
 func _rebuild_trajectory() -> void:
+	if _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
+		_rebuild_automatic_trajectory()
+		return
 	var remaining_burns: Array[ResolvedBurn] = []
 	var projected_vehicle := vehicle_state.duplicate_vehicle_state()
 	for pulse_index in range(_next_pulse_index, _plan.pulses.size()):
@@ -330,6 +369,8 @@ func _rebuild_trajectory() -> void:
 
 
 func _next_planned_pulse_time_seconds() -> float:
+	if _automatic_insertion_pending:
+		return INF
 	if _coast_segment != null and _coast_segment.end_reason == TrajectorySegment.EndReason.NEXT_BURN:
 		if _next_pulse_index < _plan.pulses.size():
 			return _coast_segment.end_time_seconds
@@ -349,6 +390,8 @@ func _fire_due_planned_pulses() -> void:
 
 
 func _apply_pulse(pulse: Pulse) -> BurnOutcome:
+	if _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
+		return _apply_automatic_pulse(pulse)
 	var requested_delta_v_meters_per_second := pulse.requested_delta_v_meters_per_second()
 	if requested_delta_v_meters_per_second <= 0.0:
 		return BurnOutcome.new()
@@ -460,6 +503,8 @@ func _attached_propellant_capacity_kilograms() -> float:
 
 
 func _remaining_delta_v_meters_per_second() -> float:
+	if _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
+		return SequentialPropulsion.apply_burn(vehicle_state.duplicate_vehicle_state(), INF).outcome.delta_v_delivered_meters_per_second
 	var remaining_delta_v_meters_per_second := 0.0
 	for stage in vehicle_state.design.stages:
 		remaining_delta_v_meters_per_second += RocketModel.available_delta_v_meters_per_second(
@@ -473,6 +518,14 @@ func _acceleration_meters_per_second_squared() -> float:
 		var mass_kilograms := _launch_stage_start_mass_kilograms - _launch_stage_propellant_kilograms
 		mass_kilograms += burn_remaining_seconds * _launch_stage_mass_flow_kilograms_per_second
 		return _burn_thrust_newtons / mass_kilograms if mass_kilograms > 0.0 else 0.0
+	if _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
+		for readout in _readout_stages:
+			var elapsed_seconds: float = simulation_time_seconds - float(readout["start_seconds"])
+			var duration_seconds: float = readout["duration_seconds"]
+			if elapsed_seconds >= 0.0 and elapsed_seconds < duration_seconds:
+				var mass_kilograms: float = float(readout["mass_kilograms"]) - float(readout["propellant_kilograms"]) * elapsed_seconds / duration_seconds
+				return float(readout["thrust_newtons"]) / mass_kilograms if mass_kilograms > 0.0 else 0.0
+		return 0.0
 	if simulation_time_seconds < _pulse_readout_ends_at_seconds:
 		var elapsed_fraction := ((simulation_time_seconds - _pulse_start_time_seconds)
 				/ (_pulse_readout_ends_at_seconds - _pulse_start_time_seconds))
@@ -586,3 +639,102 @@ func _create_flight_result(end_reason: FlightResult.EndReason) -> FlightResult:
 	result.working_instrument_count = vehicle_state.working_instrument_count()
 	result.event_log = event_log.duplicate(true)
 	return result
+
+
+func _begin_automatic_departure_stage() -> void:
+	var remaining_meters_per_second: float = _automatic_departure_requested_meters_per_second - _automatic_departure_delivered_meters_per_second
+	var preview: BurnAllocation = SequentialPropulsion.apply_burn(vehicle_state.duplicate_vehicle_state(), remaining_meters_per_second)
+	if preview.stage_ids.is_empty() or remaining_meters_per_second <= SequentialPropulsion.DELTA_V_TOLERANCE_METERS_PER_SECOND:
+		_launch_stage = null
+		_launch_stage_ends_at_seconds = INF
+		var site_angle_radians: float = deg_to_rad(_automatic_mission.get("launch_site", {}).get("polar_angle_degrees", 90.0))
+		var loss_meters_per_second: float = _automatic_mission.get("launch_loss_meters_per_second", 0.0)
+		_burnout_state = Kepler.launch_state(_body, site_angle_radians,
+				maxf(0.0, _automatic_departure_delivered_meters_per_second - loss_meters_per_second), _plan.launch_angle_radians)
+		_burnout_state.time_seconds = simulation_time_seconds
+		craft_state = _burnout_state.duplicate_state()
+		_rebuild_trajectory()
+		return
+	var stage_id: int = preview.stage_ids[0]
+	var outcome: BurnOutcome = preview.stage_outcomes[0]
+	_launch_stage = vehicle_state.design.find_stage(stage_id)
+	_automatic_stage_request_meters_per_second = outcome.delta_v_delivered_meters_per_second
+	var stats: Dictionary = GameData.part(_launch_stage.engine_part_id).get("stats", {})
+	_burn_thrust_newtons = float(stats.get("thrust_kilonewtons", 0.0)) * 1000.0 * float(vehicle_state.specific_impulse_factor_by_stage.get(stage_id, 1.0))
+	_launch_stage_start_mass_kilograms = outcome.mass_before_kilograms
+	_launch_stage_propellant_kilograms = outcome.propellant_used_kilograms
+	_launch_stage_mass_flow_kilograms_per_second = outcome.propellant_used_kilograms / outcome.burn_duration_seconds if outcome.burn_duration_seconds > 0.0 else 0.0
+	_launch_stage_ends_at_seconds = simulation_time_seconds + maxf(0.000001, outcome.burn_duration_seconds)
+
+
+func _rebuild_automatic_trajectory() -> void:
+	if _automatic_insertion_pending:
+		var completion: AscentResult = AscentPlanner.complete_from_departure(_body, _automatic_mission, craft_state, vehicle_state)
+		if completion.orbit_entry_state != null:
+			_automatic_insertion_time_seconds = completion.orbit_entry_state.time_seconds
+		else:
+			_automatic_insertion_pending = false
+			_automatic_insertion_time_seconds = INF
+		if not completion.trajectory.segments.is_empty():
+			completion.trajectory.segments[0].source_stage_id = _last_source_stage_id
+		trajectory = PlanResolver.resolve_after_ascent(_body, _plan, completion, _next_pulse_index).trajectory
+	else:
+		trajectory = PlanResolver.resolve_remaining(_body, craft_state, vehicle_state, _plan, _next_pulse_index, _last_source_stage_id).trajectory
+	_coast_segment = null if trajectory.segments.is_empty() else trajectory.segments[0]
+	_has_reached_stable_orbit = _has_reached_stable_orbit or _is_stable_orbit(_final_elements())
+
+
+func _fire_automatic_insertion() -> void:
+	if not _automatic_insertion_pending or simulation_time_seconds < _automatic_insertion_time_seconds:
+		return
+	var before_state: OrbitState = craft_state.duplicate_state()
+	var request_meters_per_second: float = maxf(0.0, Kepler.circular_speed_meters_per_second(
+			_gravitational_parameter(), craft_state.radius_meters()) - craft_state.speed_meters_per_second())
+	var allocation: BurnAllocation = SequentialPropulsion.apply_burn(vehicle_state, request_meters_per_second)
+	craft_state = Kepler.apply_pulse(craft_state, allocation.outcome.delta_v_delivered_meters_per_second, 0.0)
+	_automatic_insertion_pending = false
+	_automatic_insertion_time_seconds = INF
+	_record_allocation_readout(allocation, before_state, "Automatic orbit insertion")
+	_rebuild_trajectory()
+
+
+func _apply_automatic_pulse(pulse: Pulse) -> BurnOutcome:
+	var before_state: OrbitState = craft_state.duplicate_state()
+	var requested_meters_per_second: float = pulse.requested_delta_v_meters_per_second()
+	var allocation: BurnAllocation = SequentialPropulsion.apply_burn(vehicle_state, requested_meters_per_second, true)
+	if allocation.outcome.did_fire:
+		var delivered_share: float = allocation.outcome.delta_v_delivered_meters_per_second / requested_meters_per_second
+		craft_state = Kepler.apply_pulse(craft_state,
+				pulse.delta_v_along_velocity_meters_per_second * delivered_share,
+				pulse.delta_v_outward_meters_per_second * delivered_share)
+		_record_allocation_readout(allocation, before_state, "Pulse")
+	return allocation.outcome
+
+
+func _record_allocation_readout(allocation: BurnAllocation, before_state: OrbitState, description: String) -> void:
+	if allocation.last_stage_id() != 0:
+		_last_source_stage_id = allocation.last_stage_id()
+	_readout_stages.clear()
+	var start_seconds: float = simulation_time_seconds
+	for stage_index in allocation.stage_ids.size():
+		var stage_id: int = allocation.stage_ids[stage_index]
+		var outcome: BurnOutcome = allocation.stage_outcomes[stage_index]
+		var stage: Stage = vehicle_state.design.find_stage(stage_id)
+		var stats: Dictionary = GameData.part(stage.engine_part_id).get("stats", {})
+		_readout_stages.append({
+			"start_seconds": start_seconds, "duration_seconds": outcome.burn_duration_seconds,
+			"mass_kilograms": outcome.mass_before_kilograms, "propellant_kilograms": outcome.propellant_used_kilograms,
+			"thrust_newtons": float(stats.get("thrust_kilonewtons", 0.0)) * 1000.0 * float(vehicle_state.specific_impulse_factor_by_stage.get(stage_id, 1.0)),
+		})
+		start_seconds += outcome.burn_duration_seconds
+		log_event({"time_seconds": simulation_time_seconds, "event_type_id": "automatic_staging",
+			"description": "%s: stage %d delivered %.1f m/s, consumed %.1f kg." % [description, SequentialPropulsion.stage_number(vehicle_state.design, stage_id),
+				outcome.delta_v_delivered_meters_per_second, outcome.propellant_used_kilograms],
+			"stage_id": stage_id, "delta_v_meters_per_second": outcome.delta_v_delivered_meters_per_second,
+			"propellant_used_kilograms": outcome.propellant_used_kilograms})
+	_pulse_start_time_seconds = simulation_time_seconds
+	_pulse_readout_ends_at_seconds = start_seconds
+	var thrust_direction: OrbitState = OrbitState.create(before_state.position_x_meters, before_state.position_y_meters,
+			craft_state.velocity_x_meters_per_second - before_state.velocity_x_meters_per_second,
+			craft_state.velocity_y_meters_per_second - before_state.velocity_y_meters_per_second)
+	_pulse_attitude_radians = Kepler.flight_path_angle_radians(thrust_direction)

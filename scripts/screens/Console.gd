@@ -39,6 +39,7 @@ func _create_switch_buttons() -> void:
 
 	_planning_switch_button = Button.new()
 	_planning_switch_button.text = "< PLAN"
+	_planning_switch_button.theme = PlanningStyle.create_theme()
 	_planning_switch_button.position = switch_rect.position
 	_planning_switch_button.size = button_size
 	_planning_switch_button.pressed.connect(show_planning_half)
@@ -46,6 +47,7 @@ func _create_switch_buttons() -> void:
 
 	_execution_switch_button = Button.new()
 	_execution_switch_button.text = "EXEC >"
+	_execution_switch_button.theme = PlanningStyle.create_theme()
 	_execution_switch_button.position = switch_rect.position + Vector2(button_size.x, 0)
 	_execution_switch_button.size = button_size
 	_execution_switch_button.disabled = not GameState.has_launched
