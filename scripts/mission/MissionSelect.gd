@@ -78,7 +78,9 @@ func _ready() -> void:
 	_quest_header = _add_header(quest_column, 2, "QUESTS", "optional")
 	_quest_header.mouse_filter = Control.MOUSE_FILTER_STOP
 	_quest_header.tooltip_text = quest_tooltip
+	PixelTooltip.attach(_quest_header)
 	_penalty_pips = Control.new()
+	PixelTooltip.attach(_penalty_pips)
 	_place(_penalty_pips, quest_column, ScreenLayout.MISSION_SELECT_QUEST_PENALTY_BOX)
 	_penalty_pips.tooltip_text = quest_tooltip
 	_penalty_pips.draw.connect(_draw_penalty_pips)
@@ -91,6 +93,7 @@ func _ready() -> void:
 	_budget_label = MissionPresentation.add_label(self, "", 12)
 	_budget_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_budget_label.clip_text = true
+	PixelTooltip.attach(_budget_label)
 	_budget_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	_budget_label.position = BUDGET_SCREEN.position
 	_budget_label.size = BUDGET_SCREEN.size
@@ -98,6 +101,7 @@ func _ready() -> void:
 	_accept_button = Button.new()
 	_accept_button.text = "Accept mission"
 	_accept_button.tooltip_text = "Needs a mission and one science objective."
+	PixelTooltip.attach(_accept_button)
 	_accept_button.position = ACCEPT_BUTTON_SCREEN.position
 	_accept_button.size = ACCEPT_BUTTON_SCREEN.size
 	_accept_button.disabled = true

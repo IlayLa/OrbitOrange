@@ -312,6 +312,7 @@ func _create_top_bezel() -> void:
 	var top_bezel: Rect2 = ScreenLayout.OVERVIEW_TOP_BEZEL
 
 	launch_button = Button.new()
+	PixelTooltip.attach(launch_button)
 	launch_button.text = "LAUNCH"
 	launch_button.position = top_bezel.position + Vector2(0, 2)
 	launch_button.focus_mode = Control.FOCUS_NONE
@@ -322,6 +323,7 @@ func _create_top_bezel() -> void:
 	_set_size_when_font_is_known(launch_button, LAUNCH_BUTTON_SIZE)
 
 	var example_rocket_button := Button.new()
+	PixelTooltip.attach(example_rocket_button)
 	example_rocket_button.text = "Build example rocket"
 	example_rocket_button.tooltip_text = "Replaces the rocket and the plan with a worked example that reaches orbit"
 	example_rocket_button.position = launch_button.position + Vector2(LAUNCH_BUTTON_SIZE.x + BUTTON_GAP_PIXELS, 0)

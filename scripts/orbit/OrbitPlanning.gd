@@ -32,6 +32,7 @@ func _ready() -> void:
 	_orbit_view.size = ScreenLayout.ORBIT_PLANNING_VIEW_SCREEN.size
 	add_child(_orbit_view)
 	_overlay = Control.new()
+	PixelTooltip.attach(_overlay)
 	_overlay.position = _orbit_view.position
 	_overlay.size = _orbit_view.size
 	_overlay.mouse_default_cursor_shape = Control.CURSOR_CROSS
@@ -372,7 +373,10 @@ func _update_engine_rows() -> void:
 		var color: Color = ScreenLayout.COLOR_WARNING_RED if has_shortfall else OrbitView.stage_color(stage.stage_id)
 		var card := PanelContainer.new()
 		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# PASS, not IGNORE: the card must get hover for its tooltip, and still
+		# hands the wheel and clicks on to the scroll list.
+		card.mouse_filter = Control.MOUSE_FILTER_PASS
+		PixelTooltip.attach(card)
 		var card_style: StyleBoxFlat = PlanningStyle.panel_style(ScreenLayout.COLOR_PANEL_DARK_BLUE, color if is_selected else ScreenLayout.COLOR_MONITOR_FRAME)
 		card_style.border_width_left = 3 if is_selected else 1
 		card.add_theme_stylebox_override("panel", card_style)

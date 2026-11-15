@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=10 format=3]
+[gd_resource type="Theme" load_steps=11 format=3]
 
 ; The button skin's pixels live inside this file, not in a PNG: the project
 ; theme loads before a fresh clone's first import, when no imported PNG exists
@@ -91,6 +91,21 @@ texture_margin_bottom = 1.0
 region_rect = Rect2(6, 0, 3, 3)
 draw_center = false
 
+; Hover tooltips: an opaque card-coloured panel with the cards' hover frame,
+; so the text never mixes with the screen behind it. (The engine default is
+; a half-transparent grey.)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tooltip"]
+content_margin_left = 4.0
+content_margin_top = 3.0
+content_margin_right = 4.0
+content_margin_bottom = 3.0
+bg_color = Color(0.0627451, 0.0941176, 0.12549, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.745098, 0.827451, 0.980392, 1)
+
 [resource]
 Button/colors/font_color = Color(0, 0, 0, 1)
 Button/colors/font_disabled_color = Color(0.25, 0.25, 0.25, 1)
@@ -105,3 +120,6 @@ Button/styles/hover_pressed = SubResource("StyleBoxTexture_pressed")
 Button/styles/normal = SubResource("StyleBoxTexture_normal")
 Button/styles/pressed = SubResource("StyleBoxTexture_pressed")
 OptionButton/icons/arrow = SubResource("ImageTexture_arrow")
+TooltipLabel/colors/font_color = Color(1, 1, 1, 1)
+TooltipLabel/font_sizes/font_size = 8
+TooltipPanel/styles/panel = SubResource("StyleBoxFlat_tooltip")
