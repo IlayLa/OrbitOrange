@@ -87,11 +87,11 @@ func _capture_scenarios(directory: String) -> void:
 		_show_scenario(scenario_index)
 		await _capture_image(directory.path_join("result_%d.png" % scenario_index))
 		if scenario_index == 4:
-			_screen._score_contents.get_parent().get_parent().hide()
-			_screen._event_contents.get_parent().get_parent().show()
+			_screen.hover_event(3)
+			_screen.select_event(3)
 			await _capture_image(directory.path_join("events.png"))
-			_screen._event_contents.get_parent().scroll_vertical = 100000
-			await _capture_image(directory.path_join("events_bottom.png"))
+			_screen.select_group(0)
+			await _capture_image(directory.path_join("score_detail.png"))
 	remove_child(_screen)
 	_screen.queue_free()
 	_screen = load("res://scenes/MissionSelect.tscn").instantiate()
