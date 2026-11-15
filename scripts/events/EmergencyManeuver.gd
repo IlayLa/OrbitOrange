@@ -24,6 +24,22 @@ static func preview_trajectory(
 		return null
 	var outcome := RocketModel.apply_burn(
 			vehicle_state.duplicate_vehicle_state(), pulse.stage_id, requested_delta_v_meters_per_second)
+	return _trajectory_after_burn(body, craft_state, pulse, outcome)
+
+
+## Uses the same sequential allocation as an automatic live flight.
+static func preview_automatic_trajectory(
+		body: Dictionary, craft_state: OrbitState, vehicle_state: VehicleState, pulse: Pulse) -> Trajectory:
+	if craft_state == null or vehicle_state == null or pulse == null or pulse.requested_delta_v_meters_per_second() <= 0.0:
+		return null
+	var allocation := SequentialPropulsion.apply_burn(
+			vehicle_state.duplicate_vehicle_state(), pulse.requested_delta_v_meters_per_second(), true)
+	return _trajectory_after_burn(body, craft_state, pulse, allocation.outcome)
+
+
+static func _trajectory_after_burn(
+		body: Dictionary, craft_state: OrbitState, pulse: Pulse, outcome: BurnOutcome) -> Trajectory:
+	var requested_delta_v_meters_per_second := pulse.requested_delta_v_meters_per_second()
 	if not outcome.did_fire or outcome.delta_v_delivered_meters_per_second <= 0.0:
 		return null
 	var delivered_fraction := outcome.delta_v_delivered_meters_per_second / requested_delta_v_meters_per_second

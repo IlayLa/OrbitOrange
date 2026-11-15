@@ -130,18 +130,39 @@ func _refresh_stages(preferred_strength_meters_per_second: float) -> void:
 	var selected_index := 0
 	for index in vehicle.design.stages.size():
 		var stage := vehicle.design.stages[index]
-		var reserve_meters_per_second := RocketModel.available_delta_v_meters_per_second(vehicle, stage.stage_id)
+		if _uses_automatic_staging() and stage != SequentialPropulsion.current_stage(vehicle):
+			continue
+		var reserve_meters_per_second := _stage_reserve(stage.stage_id)
 		if reserve_meters_per_second <= 0.0:
 			continue
 		if stage.stage_id == _selected_stage_id:
 			selected_index = _stage.item_count
 		var engine_type: String = GameData.part(stage.engine_part_id).get("stats", {}).get("engine_type", "")
-		_stage.add_item("Stage %d  ·  %s  ·  %.1f m/s" % [index + 1, engine_type, reserve_meters_per_second], stage.stage_id)
+		if _uses_automatic_staging():
+			_stage.add_item("From stage %d  ·  sequential  ·  %.1f m/s" % [index + 1, reserve_meters_per_second], stage.stage_id)
+		else:
+			_stage.add_item("Stage %d  ·  %s  ·  %.1f m/s" % [index + 1, engine_type, reserve_meters_per_second], stage.stage_id)
 	_stage.disabled = _stage.item_count == 0
 	if _stage.disabled:
 		_stage.add_item("No stage available", -1)
 	_stage.select(selected_index)
 	_set_stage(preferred_strength_meters_per_second)
+
+
+func _uses_automatic_staging() -> bool:
+	return _flight.has_method("uses_automatic_staging") and _flight.uses_automatic_staging()
+
+
+func _stage_reserve(stage_id: int) -> float:
+	var vehicle: VehicleState = _flight.vehicle_state
+	if not _uses_automatic_staging():
+		return RocketModel.available_delta_v_meters_per_second(vehicle, stage_id)
+	var current := SequentialPropulsion.current_stage(vehicle)
+	if current == null or current.stage_id != stage_id:
+		return 0.0
+	if SequentialPropulsion.is_solid(current):
+		return RocketModel.available_delta_v_meters_per_second(vehicle, stage_id)
+	return SequentialPropulsion.apply_burn(vehicle.duplicate_vehicle_state(), INF).outcome.delta_v_delivered_meters_per_second
 
 
 func _set_stage(preferred_strength_meters_per_second: float) -> void:
@@ -151,7 +172,7 @@ func _set_stage(preferred_strength_meters_per_second: float) -> void:
 	%StageWarning.text = ""
 	if _selected_stage_id >= 0:
 		var vehicle: VehicleState = _flight.vehicle_state
-		_available_delta_v_meters_per_second = RocketModel.available_delta_v_meters_per_second(vehicle, _selected_stage_id)
+		_available_delta_v_meters_per_second = _stage_reserve(_selected_stage_id)
 		var lower_stages := PackedStringArray()
 		for index in vehicle.design.stages.size():
 			var stage := vehicle.design.stages[index]
@@ -165,6 +186,8 @@ func _set_stage(preferred_strength_meters_per_second: float) -> void:
 			%StageWarning.text = "Firing drops stage %s." % lower_stages[0]
 		elif lower_stages.size() > 1:
 			%StageWarning.text = "Firing drops stages %s." % ", ".join(lower_stages)
+	if _uses_automatic_staging() and _selected_stage_id >= 0:
+		%StageWarning.text = "Stages fire in order; solids burn completely."
 	_angle.editable = _selected_stage_id >= 0
 	_strength.editable = _selected_stage_id >= 0 and not _is_solid
 	_strength.max_value = _available_delta_v_meters_per_second
@@ -215,8 +238,12 @@ func _rebuild_preview() -> void:
 		var magnitude_meters_per_second := _available_delta_v_meters_per_second if _is_solid else _strength.value
 		if magnitude_meters_per_second > 0.0:
 			_preview_pulse = EmergencyManeuver.create_pulse(_selected_stage_id, _angle.value, magnitude_meters_per_second)
-			candidate_trajectory = EmergencyManeuver.preview_trajectory(
-					_body, _craft, _flight.vehicle_state, _preview_pulse)
+			if _uses_automatic_staging():
+				candidate_trajectory = EmergencyManeuver.preview_automatic_trajectory(
+						_body, _craft, _flight.vehicle_state, _preview_pulse)
+			else:
+				candidate_trajectory = EmergencyManeuver.preview_trajectory(
+						_body, _craft, _flight.vehicle_state, _preview_pulse)
 	_execute.disabled = candidate_trajectory == null or _resolved
 	%CandidateMiss.text = "Preview miss         —"
 	%CandidateMiss.modulate = TEXT_COLOR
@@ -259,8 +286,7 @@ func _planned_burn_precedes_encounter() -> bool:
 func _execute_maneuver() -> void:
 	if _resolved or _preview_pulse == null or not _on_execute.is_valid():
 		return
-	var current_reserve_meters_per_second := RocketModel.available_delta_v_meters_per_second(
-			_flight.vehicle_state, _preview_pulse.stage_id)
+	var current_reserve_meters_per_second := _stage_reserve(_preview_pulse.stage_id)
 	if current_reserve_meters_per_second > 0.0:
 		_resolved = true
 		if _on_execute.call(_preview_pulse):

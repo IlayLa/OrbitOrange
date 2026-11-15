@@ -19,3 +19,7 @@ var end_reason: EndReason = EndReason.NO_FURTHER_BURNS
 ## Index in MissionPlan.pulses of the pulse that started this segment.
 ## -1 for the first segment, which starts at launch burnout.
 var pulse_index: int = -1
+
+## Rendering metadata; pulse_index continues to refer only to manual pulses.
+var source_stage_id: int = 0
+var is_automatic_ascent: bool = false
