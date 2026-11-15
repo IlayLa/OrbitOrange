@@ -177,10 +177,26 @@ func _check_mission_select(report: TestReport) -> void:
 			report.check(not card.tooltip_text.is_empty(), "a quest card shows its full text on hover")
 	screen._on_quest_toggled(true, "keep_reserve_placeholder")
 	report.check(screen._budget_label.text.contains("$35M"), "the footer adds the grant live (%s)" % screen._budget_label.text)
-	var right_edge_pixels: float = 0.0
-	for column_left in screen.COLUMN_LEFTS:
-		right_edge_pixels = maxf(right_edge_pixels, column_left + screen.COLUMN_WIDTH_PIXELS)
-	report.check(right_edge_pixels <= ScreenLayout.SCREEN_SIZE.x, "the three columns fit the 640 pixel canvas")
+	for panel_screen: Rect2 in ScreenLayout.MISSION_SELECT_PANEL_SCREENS:
+		report.check(Rect2(Vector2.ZERO, ScreenLayout.SCREEN_SIZE).encloses(panel_screen), "the three columns fit the 640 pixel canvas")
+	var background: TextureRect = screen.get_node_or_null("MissionChoiceBackground")
+	report.check(background != null and background.texture != null
+			and background.texture.resource_path == ScreenLayout.MISSION_SELECT_BACKGROUND_PATH,
+			"mission select draws the mission_choice mock-up as its background")
+	report.check(background != null and background.texture != null
+			and background.texture.get_size() * ScreenLayout.MOCKUP_SCALE == ScreenLayout.SCREEN_SIZE,
+			"the mission_choice mock-up is 128 x 80, five times smaller than the screen")
+	report.check(background != null and background.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST,
+			"the mission_choice mock-up keeps hard pixels")
+	var first_science_card: ChoiceCard = null
+	for card in screen._details_contents.get_children():
+		if card is ChoiceCard:
+			first_science_card = card
+			break
+	report.check(first_science_card != null
+			and first_science_card.custom_minimum_size.x == ScreenLayout.MISSION_SELECT_SCIENCE_CARD_BOX.size.x
+			and first_science_card.custom_minimum_size.y >= ScreenLayout.MISSION_SELECT_SCIENCE_CARD_BOX.size.y,
+			"the first science card covers the mock-up's science box")
 	screen.free()
 
 
