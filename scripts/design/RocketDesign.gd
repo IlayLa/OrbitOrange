@@ -10,6 +10,13 @@ extends Control
 ##   - A click on an installed part in the preview removes it.
 ##   - Everything is redrawn from GameState when derived_changed arrives.
 ## This screen computes no mass, cost or delta-v itself.
+##
+## Text walls are kept off this screen (design/minimize_text_walls_options.md,
+## Option 1): the part popup is an instrument panel with better/worse arrows
+## against the part in the same slot, each stage carries a warning lamp, and
+## the cell under the tabs holds a legend of the active category's glyphs. It
+## collapses to "?" once the first part is installed. The cell also shows a
+## short message when a click could not be done (_hint_label).
 
 const CATEGORIES: Array[String] = [
 	GameData.CATEGORY_ENGINE,
@@ -31,14 +38,22 @@ const SCROLL_BAR_WIDTH_PIXELS := 8.0
 const MAXIMUM_STAGE_COUNT := 5
 const MAXIMUM_PAYLOAD_PART_COUNT := 10
 const HINT_FONT_SIZE_PIXELS := 8
-const POPUP_GAP_PIXELS := 4.0
+## Top-left corner of the part popup: against the right edge of the screen,
+## over the category tabs, below the back button.
+const POPUP_POSITION := Vector2(ScreenLayout.SCREEN_SIZE.x - PartDetailsPopup.POPUP_WIDTH_PIXELS - 2.0, 58.0)
+const LEGEND_ROW_HEIGHT_PIXELS := 9.0
+const LEGEND_TOGGLE_SIZE := Vector2(13, 13)
+## Rectangle of the Data Sources codex panel: over the preview and the part
+## list, clear of the stat chips above them.
+const CODEX_PANEL_RECT := Rect2(60, 48, 520, 330)
 
-const HINT_DEFAULT := "Click a card to add the part.\nClick a part in the rocket to remove it."
-const HINT_NO_LIQUID_STAGE := "A tank needs a liquid engine.\nAdd a liquid engine under ENG first."
+## No message: the legend explains the screen.
+const HINT_DEFAULT := ""
+const HINT_NO_LIQUID_STAGE := "A tank needs a liquid engine. Add one under ENG."
 const HINT_NO_MISSION := "No mission selected."
-const HINT_TOO_MANY_STAGES := "The rocket is full: %d stages at most.\nRemove a stage first."
-const HINT_TOO_MANY_PAYLOAD_PARTS := "The payload is full: %d parts at most.\nRemove a part first."
-const HINT_LAUNCHED := "The rocket has launched.\nIts design can no longer change."
+const HINT_TOO_MANY_STAGES := "Rocket full: %d stages at most."
+const HINT_TOO_MANY_PAYLOAD_PARTS := "Payload full: %d parts at most."
+const HINT_LAUNCHED := "The rocket has launched: the design is locked."
 
 ## The category whose cards are listed now.
 var shown_category: String = GameData.CATEGORY_ENGINE
@@ -52,6 +67,13 @@ var _card_scroll: ScrollContainer
 var _hint_label: Label
 var _details_popup: PartDetailsPopup
 var _hint_text: String = HINT_DEFAULT
+var _legend: Control
+var _legend_toggle: Button
+## True while the legend is open. It closes by itself once, when the first
+## part is installed; "?" opens it again.
+var is_legend_expanded: bool = true
+var _has_legend_collapsed_once: bool = false
+var _codex: DataSourcesCodex
 
 
 func _ready() -> void:
@@ -84,6 +106,9 @@ func _ready() -> void:
 	_details_popup = PartDetailsPopup.new()
 	add_child(_details_popup)
 
+	_codex = DataSourcesCodex.new(CODEX_PANEL_RECT)
+	add_child(_codex)
+
 	GameState.derived_changed.connect(_refresh)
 	GameState.launch_requested.connect(_on_launch_requested)
 	show_category(shown_category)
@@ -108,8 +133,11 @@ func show_category(category: String) -> void:
 		card.card_pressed.connect(install_part)
 		card.card_hovered.connect(_on_card_hovered.bind(card))
 		card.card_unhovered.connect(_on_card_unhovered)
+		card.card_info_requested.connect(open_data_sources)
 		_card_list.add_child(card)
 	_card_scroll.scroll_vertical = 0
+	if _legend != null:
+		_legend.queue_redraw()
 
 
 ## The card of the part in the list shown now, or null.
@@ -268,27 +296,114 @@ func _stage_for_new_tank() -> Stage:
 	return highest_liquid_stage
 
 
+## Opens the Data Sources codex at this part's full citation.
+func open_data_sources(part_id: String = "") -> void:
+	_details_popup.hide()
+	_codex.open_at(part_id)
+
+
+## Opens or closes the legend of the glyphs.
+func toggle_legend() -> void:
+	is_legend_expanded = not is_legend_expanded
+	_refresh_legend()
+
+
+## The part already installed in the slot the hovered part would go to, to
+## compare against: the selected stage's engine or tank for engines and tanks,
+## the payload part reading the same channel for telemetry, the first science
+## part of the payload for science. An empty Dictionary for an empty slot.
+func installed_part_for_comparison(part: Dictionary) -> Dictionary:
+	var design: RocketDesign = GameState.design
+	match part.get("category", ""):
+		GameData.CATEGORY_ENGINE, GameData.CATEGORY_TANK:
+			var selected_stage: Stage = design.find_stage(selected_stage_id)
+			if selected_stage == null:
+				return {}
+			var installed_part_id: String = selected_stage.engine_part_id
+			if part.get("category", "") == GameData.CATEGORY_TANK:
+				installed_part_id = selected_stage.tank_part_id
+			return {} if installed_part_id.is_empty() else GameData.part(installed_part_id)
+		GameData.CATEGORY_TELEMETRY:
+			var channel: String = part.get("stats", {}).get("channel", "")
+			for payload_part_id in design.payload_part_ids:
+				var payload_part: Dictionary = GameData.part(payload_part_id)
+				if payload_part.get("category", "") == GameData.CATEGORY_TELEMETRY and payload_part.get("stats", {}).get("channel", "") == channel:
+					return payload_part
+		GameData.CATEGORY_SCIENCE:
+			for payload_part_id in design.payload_part_ids:
+				var payload_part: Dictionary = GameData.part(payload_part_id)
+				if payload_part.get("category", "") == GameData.CATEGORY_SCIENCE:
+					return payload_part
+	return {}
+
+
 func _refresh() -> void:
 	# The design may have been replaced from outside (for example by
 	# "Build example rocket"), so the selection is checked every time.
 	if GameState.design.find_stage(selected_stage_id) == null:
 		selected_stage_id = 0
 	stack_preview.show_design(GameState.design, selected_stage_id)
+	stack_preview.show_lamps(WarningLamps.lamps_from_summary(GameState.summary))
 
-	var hint_lines: Array[String] = [_hint_text]
+	var hint_lines: Array[String] = []
+	if not _hint_text.is_empty():
+		hint_lines.append(_hint_text)
 	if GameState.mission.is_empty():
 		hint_lines.append(HINT_NO_MISSION)
-	if selected_stage_id != 0:
-		hint_lines.append("Next tank: stage %d (orange). Click S1, S2... to change." % _stage_number(selected_stage_id))
 	_hint_label.text = "\n".join(PackedStringArray(hint_lines))
 
+	var has_any_part: bool = not GameState.design.stages.is_empty() or not GameState.design.payload_part_ids.is_empty()
+	if has_any_part and not _has_legend_collapsed_once:
+		_has_legend_collapsed_once = true
+		is_legend_expanded = false
+	_refresh_legend()
 
-func _stage_number(stage_id: int) -> int:
-	var stages: Array[Stage] = GameState.design.stages
-	for stage_index in stages.size():
-		if stages[stage_index].stage_id == stage_id:
-			return stage_index + 1
-	return 0
+
+## The legend fills the cell under the tabs while it is open and there is no
+## message; otherwise only the "?" button shows, beside the message.
+func _refresh_legend() -> void:
+	if _legend == null:
+		return
+	_legend.visible = is_legend_expanded and _hint_label.text.is_empty()
+	_legend_toggle.text = "x" if _legend.visible else "?"
+	_legend_toggle.tooltip_text = "Hide the legend" if _legend.visible else "Show the legend of the glyphs"
+	_hint_label.visible = not _hint_label.text.is_empty()
+	_legend.queue_redraw()
+
+
+## Rows of the legend: one per stat glyph of the shown category, then the
+## arrows (shape = the number went up or down against the installed part,
+## colour = better or worse for you), the lamps and the source mark.
+func _draw_legend() -> void:
+	var legend_rows: Array[Array] = PartDetailsPopup.legend_entries(shown_category)
+	legend_rows.append(["arrows_direction", "higher / lower"])
+	legend_rows.append(["arrows_effect", "better / worse"])
+	legend_rows.append(["lamp_warning", "lamp: hover / click"])
+	legend_rows.append(["info", "right-click: source"])
+	var maximum_row_count: int = floori(_legend.size.y / LEGEND_ROW_HEIGHT_PIXELS)
+	for row_index in mini(legend_rows.size(), maximum_row_count):
+		var row: Array = legend_rows[row_index]
+		var row_top: float = row_index * LEGEND_ROW_HEIGHT_PIXELS
+		var text_left: float = PixelGlyphs.GLYPH_ADVANCE_PIXELS
+		match row[0]:
+			"arrows_direction":
+				PixelGlyphs.draw_glyph(_legend, "arrow_up", Vector2(1, row_top + 1.0), PartCard.COLOR_GLYPH)
+				PixelGlyphs.draw_glyph(_legend, "arrow_down", Vector2(10, row_top + 1.0), PartCard.COLOR_GLYPH)
+				text_left += 9.0
+			"arrows_effect":
+				PixelGlyphs.draw_glyph(_legend, "arrow_up", Vector2(1, row_top + 1.0), PartDetailsPopup.delta_arrow_color(1))
+				PixelGlyphs.draw_glyph(_legend, "arrow_up", Vector2(10, row_top + 1.0), PartDetailsPopup.delta_arrow_color(-1))
+				text_left += 9.0
+			"lamp_warning":
+				PixelGlyphs.draw_glyph(_legend, row[0], Vector2(1, row_top + 1.0), PixelGlyphs.COLOR_AMBER)
+			_:
+				PixelGlyphs.draw_glyph(_legend, row[0], Vector2(1, row_top + 1.0), PartCard.COLOR_GLYPH)
+		var text_width: float = _legend.size.x - text_left
+		if row_top + LEGEND_ROW_HEIGHT_PIXELS > _legend.size.y - LEGEND_TOGGLE_SIZE.y:
+			# Keep clear of the toggle button in the bottom right corner.
+			text_width -= LEGEND_TOGGLE_SIZE.x + 2.0
+		PixelGlyphs.draw_text(_legend, Vector2(text_left, row_top), row[1],
+				ScreenLayout.COLOR_TEXT_LIGHT, PixelGlyphs.TEXT_SIZE_PIXELS, text_width)
 
 
 func _create_card_list() -> void:
@@ -337,26 +452,48 @@ func _create_tabs() -> void:
 
 func _create_hint() -> void:
 	var free_cell: Rect2 = ScreenLayout.ROCKET_DESIGN_FREE_CELL
+	var cell_background := ColorRect.new()
+	cell_background.color = Color(ScreenLayout.COLOR_SPACE_BLACK, 0.55)
+	cell_background.position = free_cell.position + Vector2(2, 2)
+	cell_background.size = free_cell.size - Vector2(4, 4)
+	cell_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(cell_background)
+
+	_legend = Control.new()
+	_legend.position = free_cell.position + Vector2(4, 4)
+	_legend.size = free_cell.size - Vector2(8, 8)
+	_legend.clip_contents = true
+	_legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_legend.draw.connect(_draw_legend)
+	add_child(_legend)
+
 	_hint_label = Label.new()
-	_hint_label.position = free_cell.position + Vector2(3, 3)
-	_hint_label.size = free_cell.size - Vector2(6, 6)
+	_hint_label.position = free_cell.position + Vector2(4, 4)
+	_hint_label.size = free_cell.size - Vector2(8 + LEGEND_TOGGLE_SIZE.x, 8)
 	_hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint_label.clip_text = true
 	_hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hint_label.add_theme_font_size_override("font_size", HINT_FONT_SIZE_PIXELS)
-	_hint_label.add_theme_color_override("font_color", ScreenLayout.COLOR_TEXT_LIGHT)
+	_hint_label.add_theme_color_override("font_color", PixelGlyphs.COLOR_AMBER)
 	_hint_label.add_theme_constant_override("line_spacing", -1)
 	add_child(_hint_label)
 
+	_legend_toggle = Button.new()
+	_legend_toggle.text = "?"
+	_legend_toggle.focus_mode = Control.FOCUS_NONE
+	_legend_toggle.add_theme_font_size_override("font_size", HINT_FONT_SIZE_PIXELS)
+	_legend_toggle.position = free_cell.end - LEGEND_TOGGLE_SIZE - Vector2(3, 3)
+	_legend_toggle.pressed.connect(toggle_legend)
+	add_child(_legend_toggle)
+	_legend_toggle.size = LEGEND_TOGGLE_SIZE
+	_legend_toggle.set_deferred("size", LEGEND_TOGGLE_SIZE)
 
-func _on_card_hovered(part_id: String, card: PartCard) -> void:
-	# The popup opens to the left of the list, level with the card.
-	var list_rect: Rect2 = ScreenLayout.ROCKET_DESIGN_PART_LIST
-	var card_top_pixels: float = card.global_position.y - global_position.y
-	var wanted_position := Vector2(
-			list_rect.position.x - PartDetailsPopup.POPUP_WIDTH_PIXELS - POPUP_GAP_PIXELS,
-			card_top_pixels)
-	_details_popup.show_part(GameData.part(part_id), GameState.science_mission_id, wanted_position)
+
+func _on_card_hovered(part_id: String, _card: PartCard) -> void:
+	# The popup is anchored over the tabs on the right, so that it covers
+	# neither the rocket and its labels nor the card list.
+	var part: Dictionary = GameData.part(part_id)
+	_details_popup.show_part(part, GameState.science_mission_id, POPUP_POSITION, installed_part_for_comparison(part))
 
 
 func _on_launch_requested() -> void:

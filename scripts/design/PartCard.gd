@@ -1,13 +1,16 @@
 class_name PartCard
 extends Button
 ## One part in the list of the rocket design screen: icon, name, cost, and the
-## one number that matters most for the part's category. Clicking the card
-## installs the part; hovering it opens the details popup. The card only
-## reports what happened; RocketDesign.gd decides what to do.
+## one number that matters most for the part's category, as a glyph chip
+## ("glyph 290s SOLID"). Clicking the card installs the part; hovering it opens
+## the details popup; right-clicking it opens the part's full source in the
+## Data Sources codex. The card only reports what happened; RocketDesign.gd
+## decides what to do.
 
 signal card_pressed(part_id: String)
 signal card_hovered(part_id: String)
 signal card_unhovered
+signal card_info_requested(part_id: String)
 
 const CARD_HEIGHT_PIXELS := 46.0
 const ICON_SIZE_PIXELS := 20.0
@@ -16,6 +19,7 @@ const NAME_FONT_SIZE_PIXELS := 8
 const NUMBER_FONT_SIZE_PIXELS := 8
 const COLOR_CARD_TEXT := Color("ffffff")
 const COLOR_COST_TEXT := Color("ffd27a")
+const COLOR_GLYPH := Color("bed3fa")
 
 const ENGINE_TYPE_SOLID := "solid"
 
@@ -67,52 +71,57 @@ func configure(part: Dictionary, card_width_pixels: float) -> void:
 	cost_label.add_theme_color_override("font_color", COLOR_COST_TEXT)
 	add_child(cost_label)
 
-	var key_number_label := Label.new()
-	key_number_label.position = Vector2(MARGIN_PIXELS, number_line_top_pixels + 9.0)
-	key_number_label.size = Vector2(card_width_pixels - 2.0 * MARGIN_PIXELS, 10.0)
-	key_number_label.text = key_number_text(part)
-	key_number_label.clip_text = true
-	key_number_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	key_number_label.add_theme_font_size_override("font_size", NUMBER_FONT_SIZE_PIXELS)
-	key_number_label.add_theme_color_override("font_color", COLOR_CARD_TEXT)
-	add_child(key_number_label)
+	var key_chip_row := Control.new()
+	key_chip_row.position = Vector2(MARGIN_PIXELS, number_line_top_pixels + 9.0)
+	key_chip_row.size = Vector2(card_width_pixels - 2.0 * MARGIN_PIXELS, 10.0)
+	key_chip_row.clip_contents = true
+	key_chip_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var chip: Array[String] = key_chip(part)
+	key_chip_row.draw.connect(func() -> void:
+		PixelGlyphs.draw_chip(key_chip_row, Vector2.ZERO, chip[0], chip[1], COLOR_GLYPH, COLOR_CARD_TEXT))
+	add_child(key_chip_row)
 
 	pressed.connect(_on_pressed)
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
+	gui_input.connect(_on_gui_input)
 
 
+## The cost as "$1M" or "$12.5M".
 static func cost_text(part: Dictionary) -> String:
 	var cost_million_usd: float = part.get("cost_million_usd", 0.0)
-	return "$ %s M" % format_number(cost_million_usd)
+	return NumberFormat.money(cost_million_usd)
 
 
-## The one number that matters most for the part's category:
-##   engine     specific impulse, marked SOLID or LIQUID
+## The one number that matters most for the part's category, as
+## [glyph name, text] for PixelGlyphs.draw_chip:
+##   engine     specific impulse, marked SOLID or LIQ
 ##   tank       propellant capacity
 ##   telemetry  range, or the update rate for sensors without a range
 ##   science    data rate
-static func key_number_text(part: Dictionary) -> String:
+static func key_chip(part: Dictionary) -> Array[String]:
 	var stats: Dictionary = part.get("stats", {})
 	match part.get("category", ""):
 		GameData.CATEGORY_ENGINE:
-			var specific_impulse_seconds: float = stats.get("specific_impulse_seconds", 0.0)
 			var engine_type: String = stats.get("engine_type", "")
-			var engine_type_mark := "SOLID" if engine_type == ENGINE_TYPE_SOLID else "LIQUID"
-			return "Isp %s s  %s" % [format_number(specific_impulse_seconds), engine_type_mark]
+			var engine_type_mark := "SOLID" if engine_type == ENGINE_TYPE_SOLID else "LIQ"
+			return [PartDetailsPopup.glyph_for_stat("specific_impulse_seconds"), "%s %s" % [
+					PartDetailsPopup.stat_chip_text("specific_impulse_seconds", stats.get("specific_impulse_seconds", 0.0)),
+					engine_type_mark]]
 		GameData.CATEGORY_TANK:
-			var propellant_capacity_kilograms: float = stats.get("propellant_capacity_kilograms", 0.0)
-			return "Fuel %s kg" % format_number(propellant_capacity_kilograms)
+			return [PartDetailsPopup.glyph_for_stat("propellant_capacity_kilograms"),
+					PartDetailsPopup.stat_chip_text("propellant_capacity_kilograms", stats.get("propellant_capacity_kilograms", 0.0))]
 		GameData.CATEGORY_TELEMETRY:
 			var range_kilometers: float = stats.get("range_kilometers", 0.0)
 			if range_kilometers > 0.0:
-				return "Range %s km" % format_number(range_kilometers)
-			var updates_per_second: float = stats.get("updates_per_second", 0.0)
-			return "%s updates/s" % format_number(updates_per_second)
+				return [PartDetailsPopup.glyph_for_stat("range_kilometers"),
+						PartDetailsPopup.stat_chip_text("range_kilometers", range_kilometers)]
+			return [PartDetailsPopup.glyph_for_stat("updates_per_second"),
+					PartDetailsPopup.stat_chip_text("updates_per_second", stats.get("updates_per_second", 0.0))]
 		GameData.CATEGORY_SCIENCE:
-			var data_rate_megabits_per_second: float = stats.get("data_rate_megabits_per_second", 0.0)
-			return "Data %s Mb/s" % format_number(data_rate_megabits_per_second)
-	return ""
+			return [PartDetailsPopup.glyph_for_stat("data_rate_megabits_per_second"),
+					PartDetailsPopup.stat_chip_text("data_rate_megabits_per_second", stats.get("data_rate_megabits_per_second", 0.0))]
+	return ["", ""]
 
 
 ## Whole numbers without decimals, other numbers with up to two decimals.
@@ -134,3 +143,11 @@ func _on_mouse_entered() -> void:
 
 func _on_mouse_exited() -> void:
 	card_unhovered.emit()
+
+
+func _on_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var button_event: InputEventMouseButton = event
+		if button_event.pressed and button_event.button_index == MOUSE_BUTTON_RIGHT:
+			accept_event()
+			card_info_requested.emit(part_id)
