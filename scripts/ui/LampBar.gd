@@ -39,7 +39,7 @@ func _init() -> void:
 
 ## The hover help as a wrapped block, not the engine's single long line.
 func _make_custom_tooltip(for_text: String) -> Object:
-	return PixelTooltip.make(for_text)
+	return PixelTooltip.for_control(self, for_text)
 
 
 ## Shows these lamps (from WarningLamps.lamps_from_summary). A pinned or

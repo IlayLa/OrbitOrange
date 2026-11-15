@@ -5,4 +5,4 @@ extends Control
 
 
 func _make_custom_tooltip(for_text: String) -> Object:
-	return PixelTooltip.make(for_text)
+	return PixelTooltip.for_control(self, for_text)

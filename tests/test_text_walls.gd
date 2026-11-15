@@ -178,19 +178,29 @@ func _check_mission_select(report: TestReport) -> void:
 			var tooltip: Label = card._make_custom_tooltip(card.tooltip_text)
 			if tooltip == null:
 				continue
-			var tooltip_width: float = maxf(PixelTooltip.WRAP_WIDTH_PIXELS, card._card_width_pixels)
+			var tooltip_width: float = maxf(PixelTooltip.WRAP_WIDTH_PIXELS, card._card_width_pixels - card.get_theme_stylebox("panel", "TooltipPanel").get_minimum_size().x)
 			_check_tooltip_lines(report, tooltip.text, card.tooltip_text, tooltip_width, "a quest card's hover text")
 			tooltip.free()
 	var long_word_text := "fuel: " + "LOX/CH4/".repeat(12) + " end"
-	_check_tooltip_lines(report, "
-".join(PixelTooltip.wrapped_lines(long_word_text)), long_word_text,
+	_check_tooltip_lines(report, "\n".join(PixelTooltip.wrapped_lines(long_word_text)), long_word_text,
 			PixelTooltip.WRAP_WIDTH_PIXELS, "a word wider than the tooltip")
-	report.check("|".join(PixelTooltip.wrapped_lines("a
-
-b")) == "a||b", "a blank line in hover text is kept")
+	report.check("|".join(PixelTooltip.wrapped_lines("a\n\nb")) == "a||b", "a blank line in hover text is kept")
 	report.check(PixelTooltip.make("  ") == null, "empty hover text shows no tooltip")
+	report.check("|".join(PixelTooltip.wrapped_lines("ab\r\ncd\tef")) == "ab|cd ef",
+			"hover text treats a Windows line break as one break and a tab as a space")
+	var planning_themed := Control.new()
+	planning_themed.theme = PlanningStyle.create_theme()
+	GameState.add_child(planning_themed)
+	var planning_tooltip: Label = PixelTooltip.for_control(planning_themed, "Drag the point to move.")
+	report.check(planning_tooltip.get_theme_font_size("font_size") == planning_themed.get_theme_font_size("font_size", "TooltipLabel"),
+			"a tooltip on a screen with its own theme keeps that theme's tooltip size")
+	planning_tooltip.free()
+	planning_themed.free()
 	for quest_help: Control in [screen._quest_header, screen._penalty_pips]:
 		var help_tooltip: Label = quest_help._make_custom_tooltip(quest_help.tooltip_text)
+		report.check(help_tooltip != null, "the quest rules have hover text")
+		if help_tooltip == null:
+			continue
 		_check_tooltip_lines(report, help_tooltip.text, quest_help.tooltip_text, PixelTooltip.WRAP_WIDTH_PIXELS, "the quest rules hover text")
 		help_tooltip.free()
 	var plain_button := Button.new()
@@ -349,11 +359,8 @@ func _check_lamp_focus_and_overflow(report: TestReport) -> void:
 ## the same as the source text (wrapped, never cut).
 func _check_tooltip_lines(report: TestReport, wrapped_text: String, source_text: String, width_pixels: float, what: String) -> void:
 	var widest_line := 0.0
-	for line in wrapped_text.split("
-"):
+	for line in wrapped_text.split("\n"):
 		widest_line = maxf(widest_line, PixelGlyphs.text_width(line))
 	report.check(widest_line <= width_pixels, "%s wraps inside its box (widest line %.0f of %.0f px)" % [what, widest_line, width_pixels])
-	report.check("".join(wrapped_text.split("
-")).replace(" ", "") == "".join(source_text.split("
-")).replace(" ", ""),
+	report.check("".join(wrapped_text.split("\n")).replace(" ", "") == "".join(source_text.split("\n")).replace(" ", ""),
 			"%s is wrapped, never cut" % what)

@@ -93,6 +93,7 @@ func _ready() -> void:
 	_budget_label = MissionPresentation.add_label(self, "", 12)
 	_budget_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_budget_label.clip_text = true
+	PixelTooltip.attach(_budget_label)
 	_budget_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	_budget_label.position = BUDGET_SCREEN.position
 	_budget_label.size = BUDGET_SCREEN.size
