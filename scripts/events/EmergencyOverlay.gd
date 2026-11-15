@@ -1,7 +1,6 @@
 extends Control
 ## Keeps the flight paused while the player edits an immediate maneuver.
 
-const MAX_ARROW_PIXELS := 74.0
 const FIRST_PREVIEW_METERS_PER_SECOND := 8.0
 const THREAT_COLOR := Color("ff8069")
 const CANDIDATE_COLOR := Color("69e2c4")
@@ -26,7 +25,14 @@ var _selected_stage_id := -1
 var _available_delta_v_meters_per_second := 0.0
 var _is_solid := false
 var _preview_pulse: Pulse
-var _dragging := false
+## "" (none), "slingshot" (pressed on the craft) or "arrow" (pressed on the tip).
+var _drag_mode := ""
+var _drag_start_pixels := Vector2.ZERO
+var _is_aiming_slingshot := false
+var _angle_before_drag_degrees := 0.0
+var _strength_before_drag_meters_per_second := 0.0
+## The part a press would grab: "", "craft" or "arrow".
+var _hovered_part := ""
 var _resolved := false
 var _burn_failed := false
 
@@ -62,7 +68,14 @@ func _ready() -> void:
 	_tracks.draw.connect(_draw_tracks)
 	_tracks.resized.connect(_tracks.queue_redraw)
 	_tracks.gui_input.connect(_on_map_input)
+	_tracks.mouse_exited.connect(_clear_hover)
+	_tracks.mouse_default_cursor_shape = Control.CURSOR_CROSS
 	_stage.item_selected.connect(_on_stage_selected)
+	# The orbit planning screen's number fields and wording.
+	PlanningStyle.style_number_field(_angle, 13)
+	PlanningStyle.style_number_field(_strength, 13)
+	_angle.tooltip_text = PulseGeometry.DIRECTION_HELP_TEXT
+	_strength.tooltip_text = "Requested change in velocity"
 	_angle.value_changed.connect(_on_maneuver_changed)
 	_strength.value_changed.connect(_on_maneuver_changed)
 	_execute.pressed.connect(_execute_maneuver)
@@ -306,57 +319,97 @@ func _ignore_encounter() -> void:
 	hide()
 
 
+## Same gestures as the orbit planning screen: press and pull back to aim like
+## a slingshot (the burn points opposite the pull, as long as the pull), or grab
+## the arrow tip and point it. Escape undoes the drag.
+func _input(event: InputEvent) -> void:
+	if _drag_mode == "":
+		return
+	if event is InputEventMouseMotion:
+		_update_drag(_tracks.get_local_mouse_position())
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_end_drag()
+		get_viewport().set_input_as_handled()
+	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		_angle.set_value_no_signal(_angle_before_drag_degrees)
+		_strength.set_value_no_signal(_strength_before_drag_meters_per_second)
+		_end_drag()
+		_on_maneuver_changed(0.0)
+		get_viewport().set_input_as_handled()
+
+
 func _on_map_input(event: InputEvent) -> void:
 	if _resolved or _selected_stage_id < 0:
 		return
+	if event is InputEventMouseMotion and _drag_mode == "":
+		var part := _pick_part(event.position)
+		if part != _hovered_part:
+			_hovered_part = part
+			# As on the planning map: a cross where a press would start aiming, a hand over a burn's parts.
+			_tracks.mouse_default_cursor_shape = Control.CURSOR_CROSS if part == "" else Control.CURSOR_POINTING_HAND
+			_tracks.queue_redraw()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		# The craft is the only place this burn can fire, so a press anywhere
+		# except the arrow tip starts a slingshot pull from the press point.
+		_drag_mode = "arrow" if _pick_part(event.position) == "arrow" else "slingshot"
+		_drag_start_pixels = event.position
+		_is_aiming_slingshot = false
+		_angle_before_drag_degrees = _angle.value
+		_strength_before_drag_meters_per_second = _strength.value
+		_tracks.queue_redraw()
+		_tracks.accept_event()
+
+
+## "arrow" when the press would grab the arrow tip, "craft" for the burn's base, else "".
+func _pick_part(position_pixels: Vector2) -> String:
 	var origin := _screen_position(_craft)
-	var direction := _arrow_vector()
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed:
-			_dragging = (event.position.distance_to(origin) <= 17.0
-					or event.position.distance_to(origin + direction) <= 14.0)
-		else:
-			_dragging = false
-		_tracks.accept_event()
-	elif event is InputEventMouseMotion and _dragging:
-		_update_drag(event.position - origin)
-		_tracks.accept_event()
+	var tip := _arrow_tip() if _preview_pulse != null else Vector2.INF
+	var part := PulseGeometry.pick_part(position_pixels, origin, tip)
+	return "craft" if part == "anchor" else part
 
 
-func _update_drag(offset: Vector2) -> void:
-	var along_axis := _projected_axis(1.0, 0.0)
-	var outward_axis := _projected_axis(0.0, 1.0)
-	var determinant := along_axis.cross(outward_axis)
-	if not is_zero_approx(determinant) and offset.length() > 1.0:
-		var along := offset.cross(outward_axis) / determinant
-		var outward := along_axis.cross(offset) / determinant
-		_angle.set_value_no_signal(rad_to_deg(atan2(outward, along)))
+func _update_drag(position_pixels: Vector2) -> void:
+	if _drag_mode == "slingshot" and not _is_aiming_slingshot:
+		if position_pixels.distance_to(_drag_start_pixels) <= PulseGeometry.SLINGSHOT_THRESHOLD_PIXELS:
+			return
+		_is_aiming_slingshot = true
+	var direction_pixels := PulseGeometry.dragged_direction(_pull_origin(), position_pixels, _drag_mode == "slingshot")
+	if direction_pixels.length() < 1.0:
+		return
+	var components := PulseGeometry.components_from_direction(_view, _craft, direction_pixels)
+	_angle.set_value_no_signal(rad_to_deg(atan2(components.y, components.x)))
 	if not _is_solid:
-		var pull := clampf(offset.length() / MAX_ARROW_PIXELS, 0.0, 1.0)
-		_strength.set_value_no_signal(pull * pull * _available_delta_v_meters_per_second)
+		# The field's maximum is the stage reserve, so a long pull asks for all of it.
+		_strength.set_value_no_signal(PulseGeometry.magnitude_from_length(direction_pixels.length()))
 	_on_maneuver_changed(0.0)
 
 
-func _projected_axis(along: float, outward: float) -> Vector2:
-	var rotated := Kepler.apply_pulse(_craft, along, outward)
-	var velocity_change_x_meters_per_second := rotated.velocity_x_meters_per_second - _craft.velocity_x_meters_per_second
-	var velocity_change_y_meters_per_second := rotated.velocity_y_meters_per_second - _craft.velocity_y_meters_per_second
-	# A centred difference measures the local radial stretch in OrbitView.
-	var plus := _view.world_to_screen(
-			_craft.position_x_meters + 1000.0 * velocity_change_x_meters_per_second, _craft.position_y_meters + 1000.0 * velocity_change_y_meters_per_second)
-	var minus := _view.world_to_screen(
-			_craft.position_x_meters - 1000.0 * velocity_change_x_meters_per_second, _craft.position_y_meters - 1000.0 * velocity_change_y_meters_per_second)
-	return plus - minus
+## A slingshot pulls from where it was pressed; the tip is aimed from the craft.
+func _pull_origin() -> Vector2:
+	return _drag_start_pixels if _drag_mode == "slingshot" else _screen_position(_craft)
 
 
-func _arrow_vector() -> Vector2:
-	if _preview_pulse == null or _available_delta_v_meters_per_second <= 0.0:
-		return Vector2.ZERO
-	var magnitude_meters_per_second := _preview_pulse.requested_delta_v_meters_per_second()
-	var direction := _projected_axis(
-			_preview_pulse.delta_v_along_velocity_meters_per_second / magnitude_meters_per_second,
-			_preview_pulse.delta_v_outward_meters_per_second / magnitude_meters_per_second)
-	return direction.normalized() * MAX_ARROW_PIXELS * sqrt(clampf(magnitude_meters_per_second / _available_delta_v_meters_per_second, 0.0, 1.0))
+func _clear_hover() -> void:
+	if _drag_mode == "":
+		_hovered_part = ""
+		_tracks.queue_redraw()
+
+
+func _end_drag() -> void:
+	_drag_mode = ""
+	_is_aiming_slingshot = false
+	_hovered_part = _pick_part(_tracks.get_local_mouse_position())
+	_tracks.queue_redraw()
+
+
+## The arrow tip, on the same logarithmic length scale as the planning screen.
+func _arrow_tip() -> Vector2:
+	var origin := _screen_position(_craft)
+	if _preview_pulse == null:
+		return origin
+	return origin + PulseGeometry.arrow_direction(_view, _craft, _preview_pulse) * PulseGeometry.arrow_length_pixels(
+			_preview_pulse.requested_delta_v_meters_per_second())
 
 
 func _screen_position(state: OrbitState) -> Vector2:
@@ -371,15 +424,16 @@ func _draw_tracks() -> void:
 	_draw_approach(_baseline, THREAT_COLOR, 7.0)
 	_draw_approach(_candidate, CANDIDATE_COLOR, 4.0)
 	var start := _screen_position(_craft)
-	_tracks.draw_circle(start, 7.0, Color("ffffff90"), false, 1.0, true)
-	var arrow := _arrow_vector()
-	if arrow.length() < 1.0:
-		return
-	var tip := start + arrow
-	var backward := -arrow.normalized() * minf(8.0, arrow.length())
-	_tracks.draw_line(start, tip, CANDIDATE_COLOR, 2.0, true)
-	_tracks.draw_line(tip, tip + backward.rotated(0.5), CANDIDATE_COLOR, 2.0, true)
-	_tracks.draw_line(tip, tip + backward.rotated(-0.5), CANDIDATE_COLOR, 2.0, true)
+	if _preview_pulse == null:
+		_tracks.draw_arc(start, 8.0, 0.0, TAU, 24, Color.WHITE, 2.0, true)
+	else:
+		# The maneuver being edited is always the selected burn.
+		PulseGeometry.draw_arrow(_tracks, start, _arrow_tip(), CANDIDATE_COLOR, true)
+	if _drag_mode == "" and _hovered_part != "":
+		PulseGeometry.draw_hover_ring(_tracks, _arrow_tip() if _hovered_part == "arrow" else start)
+	if _drag_mode == "arrow" or (_drag_mode == "slingshot" and _is_aiming_slingshot):
+		var magnitude_meters_per_second := _available_delta_v_meters_per_second if _is_solid else _strength.value
+		PulseGeometry.draw_aim_feedback(_tracks, _pull_origin(), _drag_mode == "slingshot", magnitude_meters_per_second, _angle.value, _is_solid)
 
 
 func _draw_path(world_points: PackedFloat64Array, color: Color) -> void:

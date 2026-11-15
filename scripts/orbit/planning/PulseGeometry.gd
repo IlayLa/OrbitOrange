@@ -1,6 +1,77 @@
 class_name PulseGeometry
 extends RefCounted
-## Drawing/picking conversions for the locally stretched display and V/B arrows.
+## Drawing/picking conversions for the locally stretched display and V/B arrows,
+## and the aiming visuals every burn editor shares (orbit planning, emergency).
+
+## A press that moves less than this is a click, not a slingshot pull.
+const SLINGSHOT_THRESHOLD_PIXELS := 6.0
+## Press distance that picks an arrow tip, and a burn's base point.
+const ARROW_TIP_PICK_PIXELS := 8.0
+const ANCHOR_PICK_PIXELS := 9.0
+## Under the cursor: the part a press would grab.
+const COLOR_HOVER := Color("#8be7e6")
+const COLOR_PULL_LINE := Color(0.9, 0.9, 1.0, 0.75)
+const COLOR_CAPTION := Color("#e4eaf0")
+const COLOR_SELECTED_CAPTION := Color("#0c1925")
+## Same convention and wording in every angle field.
+const DIRECTION_HELP_TEXT := "Burn direction. 0° along motion · +90° outward"
+
+
+## Which part of a burn a press grabs: "arrow", "anchor", or "" for neither.
+## When both are in reach the nearer wins, so a short arrow cannot hide its base.
+static func pick_part(press_pixels: Vector2, anchor_pixels: Vector2, tip_pixels: Vector2) -> String:
+	var tip_distance_pixels: float = press_pixels.distance_to(tip_pixels)
+	var anchor_distance_pixels: float = press_pixels.distance_to(anchor_pixels)
+	if tip_distance_pixels <= ARROW_TIP_PICK_PIXELS and tip_distance_pixels < anchor_distance_pixels:
+		return "arrow"
+	if anchor_distance_pixels <= ANCHOR_PICK_PIXELS:
+		return "anchor"
+	if tip_distance_pixels <= ARROW_TIP_PICK_PIXELS:
+		return "arrow"
+	return ""
+
+
+## The burn direction a drag gives: a slingshot pull mirrors through the anchor
+## (pull back, burn forward); grabbing the tip points it at the cursor.
+static func dragged_direction(anchor_pixels: Vector2, cursor_pixels: Vector2, is_slingshot: bool) -> Vector2:
+	return anchor_pixels - cursor_pixels if is_slingshot else cursor_pixels - anchor_pixels
+
+
+## A burn arrow; selected arrows are drawn thicker.
+static func draw_arrow(canvas: CanvasItem, anchor_pixels: Vector2, tip_pixels: Vector2, color: Color, is_selected: bool) -> void:
+	var width_pixels: float = 3.0 if is_selected else 2.0
+	canvas.draw_line(anchor_pixels, tip_pixels, color, width_pixels, true)
+	var direction: Vector2 = (tip_pixels - anchor_pixels).normalized()
+	canvas.draw_line(tip_pixels, tip_pixels - direction.rotated(0.5) * 6.0, color, width_pixels, true)
+	canvas.draw_line(tip_pixels, tip_pixels - direction.rotated(-0.5) * 6.0, color, width_pixels, true)
+	canvas.draw_circle(anchor_pixels, 4.0, color)
+	if is_selected:
+		canvas.draw_arc(anchor_pixels, 8.0, 0.0, TAU, 24, Color.WHITE, 2.0, true)
+
+
+## The cyan ring on the part a press would grab.
+static func draw_hover_ring(canvas: CanvasItem, position_pixels: Vector2) -> void:
+	canvas.draw_arc(position_pixels, 8.0, 0.0, TAU, 24, COLOR_HOVER, 1.5, true)
+
+
+## While aiming: the slingshot's pull line (if any) and the burn in numbers by the cursor.
+static func draw_aim_feedback(canvas: Control, anchor_pixels: Vector2, is_slingshot: bool,
+		delta_v_meters_per_second: float, angle_degrees: float, is_solid: bool) -> void:
+	var cursor_pixels: Vector2 = canvas.get_local_mouse_position()
+	if is_slingshot:
+		canvas.draw_dashed_line(anchor_pixels, cursor_pixels, COLOR_PULL_LINE, 1.0, 2.0)
+	var caption: String = "%.0f°" % angle_degrees
+	if not is_solid:
+		caption = "%.0f m/s · %s" % [delta_v_meters_per_second, caption]
+	var font: Font = ThemeDB.fallback_font
+	var font_size_pixels := 10
+	var text_size: Vector2 = font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size_pixels)
+	var ascent_pixels: float = font.get_ascent(font_size_pixels)
+	var baseline_pixels: Vector2 = cursor_pixels + Vector2(10, -8)
+	baseline_pixels.x = minf(baseline_pixels.x, canvas.size.x - text_size.x - 3.0)
+	baseline_pixels.y = maxf(baseline_pixels.y, ascent_pixels + 2.0)
+	canvas.draw_rect(Rect2(baseline_pixels - Vector2(2, ascent_pixels + 1), text_size + Vector2(4, 2)), OrbitView.COLOR_LABEL_PLATE)
+	canvas.draw_string(font, baseline_pixels, caption, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size_pixels, COLOR_CAPTION)
 
 
 ## A normalized control-local screen direction for a pulse at its pre-burn state.

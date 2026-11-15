@@ -8,9 +8,7 @@ static func create_pulse(stage_id: int, angle_degrees: float, delta_v_meters_per
 	var pulse := Pulse.new()
 	pulse.stage_id = stage_id
 	pulse.fires_immediately = true
-	var angle_radians := deg_to_rad(angle_degrees)
-	pulse.delta_v_along_velocity_meters_per_second = cos(angle_radians) * delta_v_meters_per_second
-	pulse.delta_v_outward_meters_per_second = sin(angle_radians) * delta_v_meters_per_second
+	pulse.set_delta_v_from_angle(angle_degrees, delta_v_meters_per_second)
 	return pulse
 
 
