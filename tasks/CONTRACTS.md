@@ -22,7 +22,8 @@ One owner per file. You may create and edit only the files your task file lists.
 |---|---|---|
 | Project settings | `project.godot` | Integrator |
 | Shared types | `scripts/core/types/*.gd` | Integrator |
-| Plan glue, layout, test helper, worked example | `scripts/core/PlanResolver.gd`, `ScreenLayout.gd`, `TestReport.gd`, `ExampleFlight.gd` | Integrator |
+| Plan glue, layout, test helper, worked example, number texts | `scripts/core/PlanResolver.gd`, `ScreenLayout.gd`, `TestReport.gd`, `ExampleFlight.gd`, `NumberFormat.gd` | Integrator |
+| Shared UI pieces: pixel glyphs, warning lamps, lamp bar, Data Sources codex | `scripts/ui/**` | Integrator (added by the text-walls redesign, see `tasks/notes/text_walls.md`) |
 | Catalogue loader | `autoload/GameData.gd` | Integrator |
 | Game state | `autoload/GameState.gd` | Integrator |
 | Menu and console shell | `scripts/screens/*.gd`, `scenes/MainMenu.tscn`, `scenes/Console.tscn` | Integrator |
@@ -99,6 +100,9 @@ Exact signatures and comments are in the file. A body marked `STUB(T0N)` is a pl
 | `scripts/core/ExampleFlight.gd` | `fill_reference_flight`, `fill_reference_rocket`, `find_launch_angle_radians`, `launch_apoapsis_radius_meters`, `create_circularizing_pulse`: the reference rocket that reaches orbit, with the launch angle and the pulse that circularise it for a mission (static; used by "Build example rocket" and by `tests/test_integration.gd`) |
 | `scripts/orbit/OrbitView.gd` | `configure`, `show_trajectory`, `show_craft`, `show_threats`, `world_to_screen`, `screen_to_polar_angle_radians`, `screen_to_radius_meters` |
 | `scripts/core/ScreenLayout.gd` | screen size, mock-up rectangles and colours (constants) |
+| `scripts/core/NumberFormat.gd` | `money` ("$12.5M"), `duration` ("4h37m"), `points_total` (whole), `points_row` (at most 1 decimal), `kilometers` ("400km"), `meters_per_second` ("1235m/s"), `signed_difference` ("+42"), `compact`: the short number texts every screen uses (static) |
+| `scripts/ui/PixelGlyphs.gd` | `draw_glyph`, `draw_chip`, `draw_text`, `wrap_lines`, `fit_to_width`, `draw_placeholder_badge`, `lamp_glyph_name`, `lamp_color`; constants `COLOR_AMBER` (the one colour added to ScreenLayout's palette, for warnings) and `TEXT_SIZE_PIXELS` (8, the smallest text) |
+| `scripts/ui/WarningLamps.gd` | `lamps_from_summary`, `worst_severity_for_stage`, `worst_severity_for_pulse`, `sentences_for_stage`, `counts`: turns `PlanSummary.warnings` into lamps on the screen side (no `PlanSummary` change); T05 can call `worst_severity_for_pulse` for its pulse markers |
 
 ## 6. Conventions
 
@@ -143,6 +147,13 @@ from the centre of the `OrbitView`. Both numbers come from the mission's `displa
 
 ### Screen layout
 The canvas is 640×400 pixels: five times Amit's 128×80 mock-ups in `design/`. Use the rectangles and colours in `ScreenLayout.gd`. `CONSOLE_SWITCH_RECT` (top right) belongs to the console shell on every screen.
+
+### Text on screen (design/minimize_text_walls_options.md)
+- Numbers go through `NumberFormat`: no raw seconds, no four-decimal scores.
+- Nothing smaller than 8 pixels. Glyphs are 7×7 on the pixel grid with a 1 pixel dark outline (`PixelGlyphs`), and a glyph always stands with its number and unit.
+- Colour is never the only signal: warning lamps differ by shape (✖ blocking, ▲ warning, ● OK).
+- Colours: `ScreenLayout`'s plus `PixelGlyphs.COLOR_AMBER` for warnings.
+- Catalogue text starting with "Placeholder" is shown without that word, next to a grey PLACEHOLDER badge.
 
 ### Flight time (T03, T07)
 `FlightSimulation` advances in fixed steps of `SIMULATION_STEP_SECONDS` of simulated time and emits `simulation_step` once per step, at any time scale. Random rolls and collision checks happen per step, never per drawn frame, so the odds do not depend on frame rate or time scale. An event with rate `events_per_hour` happens in one step with probability `1 − e^(−events_per_hour × step_seconds / 3600)`.

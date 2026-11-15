@@ -70,3 +70,98 @@ static func clear_contents(parent: Node) -> void:
 ## Returns an altitude-band description in kilometres.
 static func zone_text(zone: Dictionary) -> String:
 	return "%.0f-%.0f km altitude" % [float(zone.get("inner_altitude_kilometers", 0.0)), float(zone.get("outer_altitude_kilometers", 0.0))]
+
+
+## Display names of the score groups, in the order the final screen shows them.
+const SCORE_GROUPS: Array[Array] = [
+	["Mission", "MISSION"],
+	["Budget", "BUDGET"],
+	["Science", "SCIENCE"],
+	["Side quests", "QUESTS"],
+]
+## Two or three words naming why a score line lost points.
+const LOSS_TAGS := {
+	"Orbit achieved": "no orbit",
+	"Altitude accuracy": "alt. off",
+	"Orbit shape": "ecc. off",
+	"Vehicle health": "parts down",
+	"Within budget": "over budget",
+	"Margin": "thin margin",
+	"Instrument fit": "weak fit",
+	"Coverage": "low coverage",
+	"Data returned": "data short",
+	"Failure penalty": "penalty",
+}
+## Failed quests lose points (and, separately, their grant).
+const QUEST_LOSS_TAG := "quest failed"
+
+
+## The score grouped for the final screen's bars. One Dictionary per group
+## in SCORE_GROUPS order: "part_name", "title", "earned_points" (sum of the
+## positive points), "maximum_points", "penalty_points" (sum of the negative
+## points, zero or below), "tag" (2-3 words and the loss, for example
+## "ecc. off −2"; "full marks" without a loss; "none taken" for no lines),
+## "has_loss" and "lines" (the ScoreLines, whose explanations stay available).
+static func score_groups(score: ScoreReport) -> Array[Dictionary]:
+	var groups: Array[Dictionary] = []
+	for group_names in SCORE_GROUPS:
+		var group_lines: Array[ScoreLine] = []
+		if score != null:
+			for line in score.lines:
+				if line.part_name == group_names[0]:
+					group_lines.append(line)
+		var earned_points := 0.0
+		var maximum_points := 0.0
+		var penalty_points := 0.0
+		var largest_loss_points := 0.0
+		var largest_loss_tag := ""
+		for line in group_lines:
+			maximum_points += line.maximum_points
+			if line.points < 0.0:
+				penalty_points += line.points
+			else:
+				earned_points += line.points
+			var loss_points: float = line.maximum_points - line.points
+			if loss_points > largest_loss_points + 0.05:
+				largest_loss_points = loss_points
+				largest_loss_tag = LOSS_TAGS.get(line.line_name, QUEST_LOSS_TAG if group_names[0] == "Side quests" else line.line_name.to_lower())
+		var tag := "full marks"
+		if group_lines.is_empty():
+			tag = "none taken"
+		elif not largest_loss_tag.is_empty():
+			tag = "%s %s" % [largest_loss_tag, NumberFormat.points_row(-largest_loss_points)]
+		groups.append({
+			"part_name": group_names[0],
+			"title": group_names[1],
+			"earned_points": earned_points,
+			"maximum_points": maximum_points,
+			"penalty_points": penalty_points,
+			"tag": tag,
+			"has_loss": not largest_loss_tag.is_empty(),
+			"lines": group_lines,
+		})
+	return groups
+
+
+## Every line of a group as "Name 12.5/15: explanation", for the detail box.
+static func group_explanation(group: Dictionary) -> String:
+	var sentences: PackedStringArray = []
+	for line: ScoreLine in group["lines"]:
+		sentences.append("%s %s/%s: %s" % [line.line_name, NumberFormat.points_row(line.points),
+				NumberFormat.points_row(line.maximum_points), line.explanation])
+	if sentences.is_empty():
+		return "No side quests were taken."
+	return "\n".join(sentences)
+
+
+## The lamp severity of a flight event, for its timeline pip: BLOCKING when
+## the outcome reads as damage, OK when the player reacted, WARNING when the
+## event was only observed. Shape and colour both follow it.
+static func event_severity(event: Dictionary) -> int:
+	var outcome: String = str(event.get("outcome", "")).to_lower()
+	for damage_word in ["collision", "destroy", "hit", "lost", "fail", "damage"]:
+		if outcome.contains(damage_word):
+			return WarningLamps.Severity.BLOCKING
+	if event.get("did_player_react", false):
+		return WarningLamps.Severity.OK
+	return WarningLamps.Severity.WARNING
