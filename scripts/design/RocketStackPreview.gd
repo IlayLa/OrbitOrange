@@ -272,6 +272,8 @@ func _add_block(block_kind: BlockKind, block_rect: Rect2, stage_id: int, payload
 func _draw() -> void:
 	if _blocks.is_empty():
 		if is_interactive:
+			# A dark plate: white text does not read on the light-blue grid.
+			draw_rect(Rect2(MARGIN_PIXELS - 3.0, size.y * 0.5 - 12.0, size.x - 2.0 * MARGIN_PIXELS + 6.0, 30.0), PixelGlyphs.COLOR_OUTLINE)
 			_draw_text(Vector2(MARGIN_PIXELS, size.y * 0.5), "No parts yet.", size.x - 2.0 * MARGIN_PIXELS,
 					EMPTY_FONT_SIZE_PIXELS, ScreenLayout.COLOR_TEXT_LIGHT)
 			_draw_text(Vector2(MARGIN_PIXELS, size.y * 0.5 + 12.0), "Pick an engine from the list.", size.x - 2.0 * MARGIN_PIXELS,

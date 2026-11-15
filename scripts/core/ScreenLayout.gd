@@ -14,7 +14,7 @@ const MOCKUP_SCALE := 5
 const PLANNING_OVERVIEW_BACKGROUND_PATH := "res://design/planning_screen.png"
 const ROCKET_DESIGN_BACKGROUND_PATH := "res://design/construction_screen.png"
 const ORBIT_PLANNING_BACKGROUND_PATH := "res://design/orbit_screen.png"
-const MISSION_SELECT_BACKGROUND_PATH := "res://assets/art/screens/mission_choice.png"
+const MISSION_SELECT_BACKGROUND_PATH := "res://design/mission_choice.png"
 const LOGO_PATH := "res://design/LOGO.png"
 
 ## --- Present on every console screen ----------------------------------------
@@ -100,3 +100,19 @@ const COLOR_EARTH_LAND := Color("44902d")
 const COLOR_TEXT_LIGHT := Color("ffffff")
 const COLOR_WARNING_RED := Color("e23a1a")
 const COLOR_ACCENT_ORANGE := Color("ff5000")
+
+
+## Adds a 128 x 80 mock-up image (one of the *_BACKGROUND_PATH constants)
+## stretched to SCREEN_SIZE with hard pixels, behind everything already
+## added to parent; returns it. node_name names the node for tests.
+static func add_mockup_background(parent: Control, image_path: String, node_name: String = "MockupBackground") -> TextureRect:
+	var background := TextureRect.new()
+	background.name = node_name
+	background.texture = load(image_path)
+	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	background.stretch_mode = TextureRect.STRETCH_SCALE
+	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	background.size = SCREEN_SIZE
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(background)
+	return background

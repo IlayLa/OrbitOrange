@@ -193,15 +193,7 @@ func _create_overview() -> void:
 	_overview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_overview)
 
-	var background := TextureRect.new()
-	background.name = "AmitPlanningBackground"
-	background.texture = load(ScreenLayout.PLANNING_OVERVIEW_BACKGROUND_PATH)
-	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.size = ScreenLayout.SCREEN_SIZE
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_overview.add_child(background)
+	ScreenLayout.add_mockup_background(_overview, ScreenLayout.PLANNING_OVERVIEW_BACKGROUND_PATH, "AmitPlanningBackground")
 
 	var rocket_monitor_rect: Rect2 = ScreenLayout.OVERVIEW_ROCKET_MONITOR_SCREEN
 	_rocket_monitor_preview = RocketStackPreview.new()
@@ -293,7 +285,8 @@ func _create_top_bezel() -> void:
 	_message_label.add_theme_font_size_override("normal_font_size", MESSAGE_FONT_SIZE_PIXELS)
 	_message_label.add_theme_constant_override("line_separation", -1)
 	var message_style := StyleBoxFlat.new()
-	message_style.bg_color = Color(ScreenLayout.COLOR_SPACE_BLACK, 0.55)
+	# Solid: red and amber sentences need a dark plate, not the tan bezel through it.
+	message_style.bg_color = PixelGlyphs.COLOR_OUTLINE
 	message_style.set_content_margin_all(2)
 	_message_label.add_theme_stylebox_override("normal", message_style)
 	_overview.add_child(_message_label)

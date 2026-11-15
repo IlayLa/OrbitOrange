@@ -81,13 +81,7 @@ func _ready() -> void:
 	# computer whose language is written right to left.
 	layout_direction = Control.LAYOUT_DIRECTION_LTR
 	size = ScreenLayout.SCREEN_SIZE
-	var background := TextureRect.new()
-	background.texture = load(ScreenLayout.ROCKET_DESIGN_BACKGROUND_PATH)
-	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.size = ScreenLayout.SCREEN_SIZE
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(background)
+	ScreenLayout.add_mockup_background(self, ScreenLayout.ROCKET_DESIGN_BACKGROUND_PATH)
 
 	stack_preview = RocketStackPreview.new()
 	stack_preview.is_interactive = true

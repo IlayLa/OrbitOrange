@@ -12,8 +12,8 @@ extends Control
 ##             quests are ticked; one card per quest with its grant and risk
 ## Cards show at most two lines of text; the full text is in the tooltip.
 ##
-## The background is the mock-up design/mission_choice.png (copied to
-## ScreenLayout.MISSION_SELECT_BACKGROUND_PATH): it draws the three panels,
+## The background is the mock-up design/mission_choice.png
+## (ScreenLayout.MISSION_SELECT_BACKGROUND_PATH): it draws the three panels,
 ## the rule under each title and the boxes the first cards sit in. The
 ## rectangles are in ScreenLayout, in mock-up pixels times five.
 
@@ -29,6 +29,11 @@ const BUDGET_SCREEN := Rect2(435, 314, 170, 16)
 const ACCEPT_BUTTON_SCREEN := Rect2(435, 332, 170, 33)
 ## Space kept free below each scrolling list.
 const LIST_BOTTOM_GAP_PIXELS := 4.0
+## The scroll bar of a list that overflows: a 1 pixel gap and a 4 pixel bar
+## right of the cards, inside the 5 pixels between the boxes and the panel frame.
+const SCROLL_BAR_WIDTH_PIXELS := 4.0
+const SCROLL_BAR_GAP_PIXELS := 1.0
+const COLOR_SCROLL_TRACK := Color("1b2230")
 const QUEST_PENALTY_POINTS: Array[int] = [5, 15, 30]
 const QUEST_SUCCESS_POINTS := 20
 const COLOR_HEADER := Color("ffd27a")
@@ -57,7 +62,7 @@ var _science_header: Control
 func _ready() -> void:
 	layout_direction = Control.LAYOUT_DIRECTION_LTR
 	theme = MissionPresentation.create_theme()
-	_add_background()
+	ScreenLayout.add_mockup_background(self, ScreenLayout.MISSION_SELECT_BACKGROUND_PATH, "MissionChoiceBackground")
 
 	var mission_column: Control = _add_column(0)
 	_add_header(mission_column, 0, "MISSION", "pick one")
@@ -80,11 +85,13 @@ func _ready() -> void:
 	quest_column.add_child(_penalty_pips)
 	_quest_contents = _add_card_list(quest_column, ScreenLayout.MISSION_SELECT_QUEST_CARD_BOX,
 			BUDGET_SCREEN.position.y - LIST_BOTTOM_GAP_PIXELS)
-	_add_waiting_text(_details_contents, ScreenLayout.MISSION_SELECT_SCIENCE_CARD_BOX.size.y)
-	_add_waiting_text(_quest_contents, ScreenLayout.MISSION_SELECT_QUEST_CARD_BOX.size.y)
+	_add_waiting_text(_details_contents, ScreenLayout.MISSION_SELECT_SCIENCE_CARD_BOX)
+	_add_waiting_text(_quest_contents, ScreenLayout.MISSION_SELECT_QUEST_CARD_BOX)
 
 	_budget_label = MissionPresentation.add_label(self, "", 12)
 	_budget_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_budget_label.clip_text = true
+	_budget_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	_budget_label.position = BUDGET_SCREEN.position
 	_budget_label.size = BUDGET_SCREEN.size
 	_budget_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -173,7 +180,7 @@ func _redraw_details() -> void:
 		_fill_box_height(card, quest_box)
 		_quest_contents.add_child(card)
 	if _chosen_mission.get("side_quests", []).is_empty():
-		_add_waiting_text(_quest_contents, quest_box.size.y, "No quests for this mission.")
+		_add_waiting_text(_quest_contents, quest_box, "No quests for this mission.")
 	_penalty_pips.queue_redraw()
 
 
@@ -220,14 +227,24 @@ func _update_acceptance() -> void:
 	for quest: Dictionary in _chosen_mission.get("side_quests", []):
 		if _chosen_quest_ids.has(quest.get("id", "")):
 			grants_million_usd += float(quest.get("grant_million_usd", 0.0))
-	if _chosen_mission.is_empty():
-		_budget_label.text = "BUDGET  --"
-	elif grants_million_usd > 0.0:
-		_budget_label.text = "BUDGET  %s   = %s + %s grants" % [NumberFormat.money(base_budget_million_usd + grants_million_usd),
+	_budget_label.text = budget_text(_chosen_mission, base_budget_million_usd, grants_million_usd)
+	_budget_label.tooltip_text = ""
+	if grants_million_usd > 0.0:
+		_budget_label.tooltip_text = "Budget %s = mission %s + quest grants %s" % [
+				NumberFormat.money(base_budget_million_usd + grants_million_usd),
 				NumberFormat.money(base_budget_million_usd), NumberFormat.money(grants_million_usd)]
-	else:
-		_budget_label.text = "BUDGET  %s" % NumberFormat.money(base_budget_million_usd)
 	_accept_button.disabled = _chosen_mission.is_empty() or _chosen_science_id.is_empty()
+
+
+## The budget line under the quests: "BUDGET  $50M (+$5M grants)". It fits
+## the 170 pixel line up to a $999M budget; the sum is in the tooltip.
+static func budget_text(mission: Dictionary, base_budget_million_usd: float, grants_million_usd: float) -> String:
+	if mission.is_empty():
+		return "BUDGET  --"
+	var total_text := "BUDGET  %s" % NumberFormat.money(base_budget_million_usd + grants_million_usd)
+	if grants_million_usd > 0.0:
+		total_text += " (+%s grants)" % NumberFormat.money(grants_million_usd)
+	return total_text
 
 
 func _accept_mission() -> void:
@@ -253,19 +270,6 @@ static func _fill_box_height(card: ChoiceCard, box: Rect2) -> void:
 static func _band_text(zone: Dictionary) -> String:
 	return "%s–%s" % [NumberFormat.compact(float(zone.get("inner_altitude_kilometers", 0.0))),
 			NumberFormat.kilometers(float(zone.get("outer_altitude_kilometers", 0.0)))]
-
-
-## The mock-up, stretched to the 640 x 400 canvas with nearest filtering.
-func _add_background() -> void:
-	var background := TextureRect.new()
-	background.name = "MissionChoiceBackground"
-	background.texture = load(ScreenLayout.MISSION_SELECT_BACKGROUND_PATH)
-	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	background.size = ScreenLayout.SCREEN_SIZE
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(background)
 
 
 ## An empty holder over the inside of one of the mock-up's panels; returns it.
@@ -303,22 +307,53 @@ func _add_header(column: Control, column_index: int, title: String, note: String
 ## A scrolling list of cards whose first card covers first_box (screen
 ## pixels); the list runs down to bottom_pixels (screen pixels).
 func _add_card_list(column: Control, first_box: Rect2, bottom_pixels: float) -> VBoxContainer:
-	var scroll := ScrollContainer.new()
-	_place(scroll, column, Rect2(first_box.position, Vector2(first_box.size.x, bottom_pixels - first_box.position.y)))
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
+	var scroll := _add_scroll(column, Rect2(first_box.position, Vector2(first_box.size.x, bottom_pixels - first_box.position.y)))
 	var contents := VBoxContainer.new()
-	contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	contents.add_theme_constant_override("separation", CARD_GAP_PIXELS)
 	scroll.add_child(contents)
 	return contents
 
 
+## A vertical scroll list whose cards cover cards_screen (screen pixels). The
+## scroll area is wider by the scroll bar, so a bar never covers a card and
+## stays inside the panel frame.
+func _add_scroll(column: Control, cards_screen: Rect2) -> ScrollContainer:
+	var scroll := ScrollContainer.new()
+	_place(scroll, column, Rect2(cards_screen.position,
+			cards_screen.size + Vector2(SCROLL_BAR_GAP_PIXELS + SCROLL_BAR_WIDTH_PIXELS, 0)))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_style_scroll_bar(scroll.get_v_scroll_bar())
+	column.add_child(scroll)
+	return scroll
+
+
+## A plain 4 pixel bar: a dark track and a light grabber, no arrow buttons.
+static func _style_scroll_bar(bar: VScrollBar) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = COLOR_SCROLL_TRACK
+	track.content_margin_left = SCROLL_BAR_WIDTH_PIXELS * 0.5
+	track.content_margin_right = SCROLL_BAR_WIDTH_PIXELS * 0.5
+	bar.add_theme_stylebox_override("scroll", track)
+	bar.add_theme_stylebox_override("scroll_focus", track)
+	for state_name in ["grabber", "grabber_highlight", "grabber_pressed"]:
+		var grabber := StyleBoxFlat.new()
+		grabber.bg_color = ScreenLayout.COLOR_MONITOR_GRID_LINE if state_name == "grabber" else ScreenLayout.COLOR_TEXT_LIGHT
+		grabber.content_margin_left = SCROLL_BAR_WIDTH_PIXELS * 0.5
+		grabber.content_margin_right = SCROLL_BAR_WIDTH_PIXELS * 0.5
+		grabber.content_margin_top = 4
+		grabber.content_margin_bottom = 4
+		bar.add_theme_stylebox_override(state_name, grabber)
+	var no_icon := ImageTexture.create_from_image(Image.create(1, 1, false, Image.FORMAT_RGBA8))
+	for icon_name in ["increment", "increment_highlight", "increment_pressed", "decrement", "decrement_highlight", "decrement_pressed"]:
+		bar.add_theme_icon_override(icon_name, no_icon)
+	bar.custom_minimum_size.x = SCROLL_BAR_WIDTH_PIXELS
+
+
 ## Muted text centred in the (still empty) first box of a list.
-func _add_waiting_text(contents: Control, box_height_pixels: float, text: String = "Pick a mission first.") -> void:
+func _add_waiting_text(contents: Control, box: Rect2, text: String = "Pick a mission first.") -> void:
 	var waiting := MissionPresentation.add_label(contents, text, 8)
 	waiting.add_theme_color_override("font_color", PixelGlyphs.COLOR_MUTED_TEXT)
-	waiting.custom_minimum_size.y = box_height_pixels
+	waiting.custom_minimum_size = box.size
 	waiting.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	waiting.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
@@ -328,12 +363,8 @@ func _add_waiting_text(contents: Control, box_height_pixels: float, text: String
 func _create_mission_column(column: Control) -> void:
 	var boxes: Array[Rect2] = ScreenLayout.MISSION_SELECT_MISSION_CARD_BOXES
 	var list_screen := Rect2(boxes[0].position, Vector2(boxes[0].size.x, boxes[boxes.size() - 1].end.y - boxes[0].position.y))
-	var scroll := ScrollContainer.new()
-	_place(scroll, column, list_screen)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
+	var scroll := _add_scroll(column, list_screen)
 	_mission_contents = VBoxContainer.new()
-	_mission_contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_mission_contents.add_theme_constant_override("separation", CARD_GAP_PIXELS)
 	scroll.add_child(_mission_contents)
 	var mission_group := ButtonGroup.new()
