@@ -231,7 +231,7 @@ func _draw() -> void:
 	if _trajectory != null:
 		match _trajectory.status:
 			Trajectory.Status.IMPACT:
-				warning = "WILL NOT REACH ORBIT"
+				warning = "ATMOSPHERIC IMPACT"
 			Trajectory.Status.ESCAPE:
 				warning = "YOU ARE LEAVING EARTH ORBIT"
 			Trajectory.Status.UNREACHABLE_PULSE:
