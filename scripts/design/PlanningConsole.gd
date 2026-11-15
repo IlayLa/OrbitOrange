@@ -40,6 +40,17 @@ const BUTTON_FONT_SIZE_PIXELS := 10
 const BACK_BUTTON_FONT_SIZE_PIXELS := 8
 const LAMP_BAR_HEIGHT_PIXELS := 13.0
 
+## Amit reacts to the lamp under the mouse, pinned or focused: judging for a
+## warning, concerned for a problem that blocks the launch. Her portrait sits
+## on a dark plate just right of the lamp bar and the message line, as tall
+## as both, framed in the lamp's colour.
+const AMIT_PORTRAIT_FOLDER := "res://assets/art/portraits/"
+const AMIT_PORTRAIT_FOR_WARNING := "amit_judging"
+const AMIT_PORTRAIT_FOR_BLOCKING := "amit_concerned"
+## Her head and shoulders in the 128x80 sprites, drawn 1:1.
+const AMIT_PORTRAIT_CROP := Rect2(35, 2, 58, 42)
+const AMIT_PORTRAIT_GAP_PIXELS := 2.0
+
 const MESSAGE_NO_MISSION := "No mission selected."
 const MESSAGE_READY := "Ready to launch."
 const MESSAGE_LAUNCHED := "The flight has started. The rocket and the plan can no longer change."
@@ -65,6 +76,9 @@ var _lamps: Array[Dictionary] = []
 ## The sentence of the lamp the player points at or pinned; "" for none.
 var _active_lamp_sentence: String = ""
 var _active_lamp_severity: int = WarningLamps.Severity.OK
+var _amit_plate: Panel
+var _amit_plate_style: StyleBoxFlat
+var _amit_portrait: TextureRect
 var _rocket_design_holder: Control
 var _rocket_design_stat_chips: StatChips
 ## True while the rocket design screen shows its Data Sources codex.
@@ -360,6 +374,25 @@ func _create_top_bezel() -> void:
 	_message_label.add_theme_stylebox_override("normal", message_style)
 	_overview.add_child(_message_label)
 
+	_amit_plate = Panel.new()
+	_amit_plate.name = "AmitPlate"
+	_amit_plate.position = Vector2(top_bezel.end.x + AMIT_PORTRAIT_GAP_PIXELS, lamps_top_pixels)
+	_amit_plate.size = AMIT_PORTRAIT_CROP.size + Vector2(2, 2)
+	_amit_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_amit_plate_style = StyleBoxFlat.new()
+	_amit_plate_style.bg_color = PixelGlyphs.COLOR_OUTLINE
+	_amit_plate_style.set_border_width_all(1)
+	_amit_plate.add_theme_stylebox_override("panel", _amit_plate_style)
+	_amit_plate.hide()
+	_overview.add_child(_amit_plate)
+	_amit_portrait = TextureRect.new()
+	_amit_portrait.name = "AmitPortrait"
+	_amit_portrait.position = Vector2(1, 1)
+	_amit_portrait.size = AMIT_PORTRAIT_CROP.size
+	_amit_portrait.stretch_mode = TextureRect.STRETCH_KEEP
+	_amit_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_amit_plate.add_child(_amit_portrait)
+
 
 ## A see-through button over a monitor: a light frame appears under the mouse.
 func _create_monitor_button(monitor_rect: Rect2, tooltip: String, on_pressed: Callable) -> Button:
@@ -442,6 +475,7 @@ func _refresh() -> void:
 	else:
 		launch_button.tooltip_text = "Cannot launch: " + " ".join(PackedStringArray(blocking_problems))
 	_update_message()
+	_update_amit_portrait()
 
 	# OrbitView scales the complete mission itself, keeping its rings and zones.
 	_orbit_monitor.configure(GameData.body(GameState.mission.get("body_id", "earth")), GameState.mission)
@@ -491,3 +525,31 @@ func _on_active_lamp_changed(sentence: String, severity: int) -> void:
 	_active_lamp_sentence = sentence
 	_active_lamp_severity = severity
 	_update_message()
+	_update_amit_portrait()
+
+
+## Shows Amit while a lamp is hovered, pinned or focused; hides her otherwise.
+func _update_amit_portrait() -> void:
+	if _amit_plate == null:
+		return
+	var portrait_name := amit_portrait_name(_active_lamp_sentence, _active_lamp_severity)
+	if portrait_name.is_empty() or GameState.has_launched:
+		_amit_plate.hide()
+		return
+	var texture := AtlasTexture.new()
+	texture.atlas = load(AMIT_PORTRAIT_FOLDER + portrait_name + ".png")
+	texture.region = AMIT_PORTRAIT_CROP
+	_amit_portrait.texture = texture
+	_amit_plate_style.border_color = PixelGlyphs.lamp_color(_active_lamp_severity)
+	_amit_plate.show()
+
+
+## Amit's pose for the active lamp: "" when no lamp is active.
+static func amit_portrait_name(sentence: String, severity: int) -> String:
+	if sentence.is_empty():
+		return ""
+	if severity == WarningLamps.Severity.BLOCKING:
+		return AMIT_PORTRAIT_FOR_BLOCKING
+	if severity == WarningLamps.Severity.WARNING:
+		return AMIT_PORTRAIT_FOR_WARNING
+	return ""
