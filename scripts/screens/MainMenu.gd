@@ -13,7 +13,8 @@ func _ready() -> void:
 	add_child(background)
 
 	var logo := TextureRect.new()
-	logo.texture = load(ScreenLayout.LOGO_PATH)
+	logo.name = "Logo"
+	logo.texture = _trimmed_to_visible_pixels(load(ScreenLayout.LOGO_PATH))
 	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	logo.position = Vector2(220, 30)
@@ -44,6 +45,19 @@ func _ready() -> void:
 	sources_button.pressed.connect(codex.open_at)
 	add_child(sources_button)
 	add_child(codex)
+
+
+## The logo art sits off-centre in its canvas (empty margin on the left and
+## top only), so centring the whole image leaves the badge to the right.
+## Cropping to the visible pixels centres the badge itself.
+static func _trimmed_to_visible_pixels(texture: Texture2D) -> Texture2D:
+	var visible_rect := texture.get_image().get_used_rect()
+	if visible_rect.size == Vector2i.ZERO or visible_rect.size == Vector2i(texture.get_size()):
+		return texture
+	var trimmed := AtlasTexture.new()
+	trimmed.atlas = texture
+	trimmed.region = Rect2(visible_rect)
+	return trimmed
 
 
 func _on_start_new_game_pressed() -> void:
