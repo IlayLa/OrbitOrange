@@ -126,6 +126,11 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 		end_flight(FlightResult.EndReason.LAUNCH_FAILURE)
 
 
+## Whether this flight derives burn stages from the sequential stack.
+func uses_automatic_staging() -> bool:
+	return _plan != null and _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC
+
+
 ## Sets simulated seconds per real second to one of the allowed scales.
 func set_time_scale(new_time_scale: float) -> void:
 	if ALLOWED_TIME_SCALES.has(new_time_scale):
