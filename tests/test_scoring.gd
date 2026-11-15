@@ -244,6 +244,15 @@ func _check_data_and_screens(report: TestReport) -> void:
 
 
 func _check_final_screen_portraits(report: TestReport) -> void:
+	var expected_poses := {
+		"Partial Success": "amit_explaining", "Success": "amit_happy", "Great Success": "amit_greatsuccess",
+		"Perfect": "amit_greatsuccess", "Scientific Breakthrough": "amit_greatsuccess",
+	}
+	for band_name in expected_poses:
+		for coin in [0, 1]:
+			report.check(FINAL_SCREEN_SCRIPT.portrait_name(band_name, coin) == expected_poses[band_name], "%s uses %s" % [band_name, expected_poses[band_name]])
+	report.check(FINAL_SCREEN_SCRIPT.portrait_name("Failure", 0) == "amit_concerned", "Failure coin heads uses amit_concerned")
+	report.check(FINAL_SCREEN_SCRIPT.portrait_name("Failure", 1) == "amit_judging", "Failure coin tails uses amit_judging")
 	var saved_score: ScoreReport = GameState.score
 	for band_name in ["Failure", "Partial Success", "Success", "Great Success", "Perfect", "Scientific Breakthrough"]:
 		var score := ScoreReport.new()
@@ -254,10 +263,19 @@ func _check_final_screen_portraits(report: TestReport) -> void:
 		var portrait := FINAL_SCREEN_SCRIPT.portrait_texture(band_name)
 		report.check(portrait.atlas != null and portrait.atlas.resource_path.begins_with("res://assets/art/portraits/amit_"), "%s portrait is Amit's art" % band_name)
 		var bubble_label: Label = screen.find_child("SpeechBubbleLabel", true, false)
-		if band_name == "Perfect":
-			report.check(bubble_label != null and bubble_label.text == "I Like It - Perfect", "Perfect final screen shows Amit's speech bubble")
+		if band_name == "Great Success":
+			report.check(bubble_label != null and bubble_label.text == "Great Success!!", "Great Success final screen says Great Success!!")
+		elif band_name == "Perfect":
+			report.check(bubble_label != null and bubble_label.text == "I Like It - Perfect", "Perfect final screen says I Like It - Perfect")
+		elif band_name == "Scientific Breakthrough":
+			report.check(bubble_label != null and bubble_label.text == "I Like It - Breakthrough", "Scientific Breakthrough final screen says I Like It - Breakthrough")
 		else:
 			report.check(bubble_label == null, "%s final screen has no speech bubble" % band_name)
+		var fireworks: Node = screen.find_child("Fireworks", true, false)
+		if band_name == "Scientific Breakthrough":
+			report.check(fireworks != null, "Scientific Breakthrough final screen shows fireworks")
+		else:
+			report.check(fireworks == null, "%s final screen has no fireworks" % band_name)
 		GameState.remove_child(screen)
 		screen.free()
 	GameState.score = saved_score

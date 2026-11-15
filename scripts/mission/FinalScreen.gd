@@ -12,18 +12,31 @@ extends Control
 ##              writes its explanation in the detail box
 ## The explanations of Scoring stay available, one click away.
 
-const PORTRAIT_PATHS := {
-	"Failure": "res://assets/art/portraits/amit_concerned.png",
-	"Partial Success": "res://assets/art/portraits/amit_judging.png",
-	"Success": "res://assets/art/portraits/amit_happy.png",
-	"Great Success": "res://assets/art/portraits/amit_greatsuccess.png",
-	"Perfect": "res://assets/art/portraits/amit_greatsuccess.png",
-	"Scientific Breakthrough": "res://assets/art/portraits/amit_explaining.png",
+const PORTRAIT_FOLDER := "res://assets/art/portraits/"
+## Amit's pose per band; a band with two poses picks one by a coin toss.
+const PORTRAIT_NAMES := {
+	"Failure": ["amit_concerned", "amit_judging"],
+	"Partial Success": ["amit_explaining"],
+	"Success": ["amit_happy"],
+	"Great Success": ["amit_greatsuccess"],
+	"Perfect": ["amit_greatsuccess"],
+	"Scientific Breakthrough": ["amit_greatsuccess"],
 }
 ## Amit fills only the middle of each 128x80 sprite; this 70x70 window holds
 ## every pose (widest is amit_explaining) and is drawn 1:1 in the portrait rect.
 const PORTRAIT_CROP := Rect2(19, 1, 70, 70)
-const SPEECH_BUBBLE_TEXTS := {"Perfect": "I Like It - Perfect"}
+const PERFECT_SPEECH_TEXT := "I Like It - Perfect"
+const SPEECH_BUBBLE_TEXTS := {
+	"Great Success": "Great Success!!",
+	"Perfect": PERFECT_SPEECH_TEXT,
+	"Scientific Breakthrough": "I Like It - Breakthrough",
+}
+const FIREWORK_BANDS := ["Scientific Breakthrough"]
+## Burst centres around the portrait, in screen pixels, and their start offsets in the cycle.
+const FIREWORK_CENTERS := [Vector2(10, 14), Vector2(80, 10), Vector2(8, 58), Vector2(46, 5), Vector2(84, 40)]
+const FIREWORK_COLORS := [Color("ff5000"), Color("ffd27a"), Color("6ee06e"), Color("ffffff"), Color("7ac8ff")]
+const FIREWORK_FRAME_SECONDS := 0.08
+const FIREWORK_FRAMES_PER_BURST := 14
 const BARS_PANEL_RECT := Rect2(10, 84, 372, 176)
 const ORBIT_PANEL_RECT := Rect2(390, 84, 240, 176)
 const TIMELINE_PANEL_RECT := Rect2(10, 264, 620, 60)
@@ -73,6 +86,8 @@ func _ready() -> void:
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	var band_name := _score.band_name if _score != null else "Failure"
+	if band_name in FIREWORK_BANDS:
+		_add_fireworks()
 	portrait.texture = portrait_texture(band_name)
 	add_child(portrait)
 
@@ -223,19 +238,67 @@ func _add_panel(rectangle: Rect2) -> Panel:
 	return panel
 
 
+## Returns the pose name for the band; coin (0 or 1) picks between two poses.
+static func portrait_name(band_name: String, coin: int = randi() % 2) -> String:
+	var names: Array = PORTRAIT_NAMES.get(band_name, PORTRAIT_NAMES["Failure"])
+	return names[clampi(coin, 0, names.size() - 1)]
+
+
 ## Returns Amit's portrait for the band, cropped to the part of the sprite he fills.
-static func portrait_texture(band_name: String) -> AtlasTexture:
+static func portrait_texture(band_name: String, coin: int = randi() % 2) -> AtlasTexture:
 	var texture := AtlasTexture.new()
-	texture.atlas = load(PORTRAIT_PATHS.get(band_name, PORTRAIT_PATHS["Failure"]))
+	texture.atlas = load(PORTRAIT_FOLDER + portrait_name(band_name, coin) + ".png")
 	texture.region = PORTRAIT_CROP
 	return texture
+
+
+## Adds looping pixel fireworks behind and around Amit's portrait.
+func _add_fireworks() -> void:
+	var fireworks := Control.new()
+	fireworks.name = "Fireworks"
+	fireworks.position = Vector2.ZERO
+	fireworks.size = Vector2(92, 82)
+	fireworks.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fireworks.set_meta("frame", 0)
+	fireworks.draw.connect(_draw_fireworks.bind(fireworks))
+	add_child(fireworks)
+	var timer := Timer.new()
+	timer.wait_time = FIREWORK_FRAME_SECONDS
+	timer.autostart = true
+	timer.timeout.connect(func() -> void:
+		fireworks.set_meta("frame", int(fireworks.get_meta("frame")) + 1)
+		fireworks.queue_redraw())
+	fireworks.add_child(timer)
+
+
+## Each burst grows eight rays of 2x2 pixels and fades, staggered per centre.
+func _draw_fireworks(fireworks: Control) -> void:
+	var frame: int = fireworks.get_meta("frame")
+	for index in FIREWORK_CENTERS.size():
+		var burst_frame: int = (frame + index * 5) % (FIREWORK_FRAMES_PER_BURST + 4)
+		if burst_frame >= FIREWORK_FRAMES_PER_BURST:
+			continue
+		var progress := float(burst_frame) / FIREWORK_FRAMES_PER_BURST
+		var color: Color = FIREWORK_COLORS[(index + frame / (FIREWORK_FRAMES_PER_BURST + 4)) % FIREWORK_COLORS.size()]
+		color.a = 1.0 - progress * progress
+		var center: Vector2 = FIREWORK_CENTERS[index]
+		var radius := 2.0 + progress * 11.0
+		for ray in 8:
+			var direction := Vector2.RIGHT.rotated(ray * TAU / 8.0)
+			for trail in 2:
+				var point := (center + direction * (radius - trail * 3.0)).round()
+				fireworks.draw_rect(Rect2(point, Vector2(2, 2)), Color(color, color.a * (1.0 - trail * 0.5)))
+		if burst_frame < 3:
+			fireworks.draw_rect(Rect2(center.round() - Vector2(1, 1), Vector2(3, 3)), ScreenLayout.COLOR_TEXT_LIGHT)
 
 
 ## Adds Amit's speech bubble beside the band name, its tail pointing back at him.
 func _add_speech_bubble(text: String) -> void:
 	var bubble := PanelContainer.new()
 	bubble.name = "SpeechBubble"
-	bubble.position = Vector2(176, 6)
+	# Beside the band name drawn by _draw_header (header at x 92, band name at 16 px).
+	var band_text: String = _score.band_name.to_upper() if _score != null else ""
+	bubble.position = Vector2(92 + PixelGlyphs.text_width(band_text, 16) + 10, 4)
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
 	style.bg_color = ScreenLayout.COLOR_TEXT_LIGHT
