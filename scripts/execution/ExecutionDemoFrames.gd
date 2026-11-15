@@ -4,7 +4,7 @@ extends RefCounted
 ## demo scene and the execution console tests. Static functions only.
 
 const STATE_NAMES: Array[String] = [
-	"1 nominal, all sensors, 1x",
+	"1 nominal, active sensors, 1x",
 	"2 every sensor missing",
 	"3 sensors installed but failed",
 	"4 three radar contacts, levels 0 1 2",
@@ -20,9 +20,9 @@ const STATE_NAMES: Array[String] = [
 const CHECK_HINTS: Array[String] = [
 	"Clock runs. Press II 0.5x 1x 2x 4x 8x: the lit button follows. T+ reads years, months, days, hours. Δv LEFT is bottom centre, FUEL is top of the left column.",
 	"Every instrument, the radar and FUEL read NO SENSOR. Δv still shows: it needs no sensor.",
-	"Every instrument and FUEL read NO SIGNAL. The radar shows no contacts.",
+	"Installed instruments and FUEL read NO SIGNAL. The radar shows no contacts.",
 	"Blip only (level 0); blip + km (level 1); ring + type, km and m/s (level 2). Ring 50 km.",
-	"Lamp flashes, LOW FUEL and OVER TEMPERATURE listed, alert box until OK.",
+	"Lamp flashes, LOW FUEL and HAZARD NEAR listed, alert box until OK.",
 	"ACC 2.50 g ENGINE ON, θ +30.0°, γ +25.0°, 8x lit.",
 	"II lit, Next pulse in none, Δv 0 m/s.",
 	"A contact closes from 240 to 3 km. It moves steadily inward; the ring never shrinks.",
@@ -122,7 +122,6 @@ static func _nominal() -> TelemetryFrame:
 		TelemetryFrame.CHANNEL_FUEL_KILOGRAMS: 1830.0,
 		TelemetryFrame.CHANNEL_ATTITUDE_RADIANS: deg_to_rad(1.5),
 		TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS: deg_to_rad(0.4),
-		TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN: 301.0,
 	})
 	return frame
 
@@ -163,9 +162,8 @@ static func _alarms() -> TelemetryFrame:
 	var frame := _nominal()
 	frame.time_scale = 0.0
 	frame.active_alarms.append("LOW_FUEL")
-	frame.active_alarms.append("OVER_TEMPERATURE")
+	frame.active_alarms.append("HAZARD_NEAR")
 	frame.readings_by_channel[TelemetryFrame.CHANNEL_FUEL_KILOGRAMS] = reading(true, true, 90.0)
-	frame.readings_by_channel[TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN] = reading(true, true, 362.0)
 	return frame
 
 
@@ -203,8 +201,7 @@ static func _set_all_readings(
 		frame: TelemetryFrame, is_installed: bool, is_working: bool, values_by_channel: Dictionary) -> void:
 	for channel_name: String in [
 			TelemetryFrame.CHANNEL_ALTITUDE_METERS, TelemetryFrame.CHANNEL_FUEL_KILOGRAMS,
-			TelemetryFrame.CHANNEL_ATTITUDE_RADIANS, TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS,
-			TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN]:
+			TelemetryFrame.CHANNEL_ATTITUDE_RADIANS, TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS]:
 		frame.readings_by_channel[channel_name] = reading(
 				is_installed, is_working, float(values_by_channel.get(channel_name, 0.0)), 2)
 	frame.readings_by_channel[TelemetryFrame.CHANNEL_ACCELERATION_METERS_PER_SECOND_SQUARED] = reading(

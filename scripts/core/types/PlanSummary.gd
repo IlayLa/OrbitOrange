@@ -21,6 +21,8 @@ var is_pulse_affordable: Array[bool] = []
 var delta_v_remaining_by_stage: Dictionary = {}
 ## Sum of delta_v_remaining_by_stage: the safety margin for emergencies.
 var reserve_delta_v_meters_per_second: float = 0.0
+## Index in MissionPlan.pulses of the first pulse excluded by the mission deadline, or -1.
+var first_pulse_at_or_after_mission_end_index: int = -1
 ## Human-readable problems, for example "Stage 2 has no tank". Advice that
 ## does not stop a launch starts with RocketModel.WARNING_PREFIX.
 var warnings: Array[String] = []
