@@ -103,11 +103,15 @@ func _press_card(rocket_design_screen: Control, category: String, part_id: Strin
 
 func _check_part_texts(report: TestReport) -> void:
 	var solid_engine: Dictionary = GameData.part(SOLID_ENGINE_PART_ID)
-	report.check(PartCard.key_number_text(solid_engine) == "Isp 290 s  SOLID", "engine card shows specific impulse and engine type")
-	report.check(PartCard.key_number_text(GameData.part(TANK_PART_ID)).begins_with("Fuel "), "tank card shows propellant capacity")
-	report.check(PartCard.key_number_text(GameData.part(TELEMETRY_PART_ID)) == "1 updates/s", "telemetry card without a range shows its update rate")
-	report.check(PartCard.key_number_text(GameData.part(SCIENCE_PART_ID)) == "Data 1 Mb/s", "science card shows its data rate")
-	report.check(PartCard.cost_text(solid_engine) == "$ 1 M", "card shows the cost in million USD")
+	report.check(PartCard.key_chip(solid_engine) == ["efficiency", "290s SOLID"], "engine card shows specific impulse and engine type")
+	report.check(PartCard.key_chip(GameData.part(TANK_PART_ID))[0] == "fuel", "tank card shows propellant capacity")
+	report.check(PartCard.key_chip(GameData.part(TELEMETRY_PART_ID)) == ["rate", "1/s"], "telemetry card without a range shows its update rate")
+	report.check(PartCard.key_chip(GameData.part(SCIENCE_PART_ID)) == ["data", "1Mb/s"], "science card shows its data rate")
+	report.check(PartCard.cost_text(solid_engine) == "$1M", "card shows the cost in million USD")
+	for category in [GameData.CATEGORY_ENGINE, GameData.CATEGORY_TANK, GameData.CATEGORY_TELEMETRY, GameData.CATEGORY_SCIENCE]:
+		for part: Dictionary in GameData.parts_in_category(category):
+			var chip: Array[String] = PartCard.key_chip(part)
+			report.check(PixelGlyphs.has_glyph(chip[0]) and not chip[1].is_empty(), "card chip of %s has a glyph and a number" % part["id"])
 
 	report.check(PartDetailsPopup.stat_line("thrust_kilonewtons", 47.0) == "Thrust: 47 kN", "popup takes the unit from the key ending")
 	report.check(PartDetailsPopup.stat_line("data_rate_megabits_per_second", 1.5) == "Data Rate: 1.5 Mb/s", "popup prefers the longest matching ending")
@@ -122,6 +126,55 @@ func _check_part_texts(report: TestReport) -> void:
 	report.check(PartDetailsPopup.mission_fit_stars(GameData.part(SCIENCE_PART_ID), "earth_imaging") == 2, "popup reads the mission fit of the chosen science mission")
 	report.check(PartDetailsPopup.mission_fit_stars(solid_engine, "earth_imaging") == 0, "a part without a rating has no stars")
 	report.check(PartDetailsPopup.source_line(solid_engine).begins_with("Source (approximate): "), "popup marks approximate sources")
+
+	# The instrument panel popup: chips with a glyph and a unit, arrows against the installed part.
+	report.check(PartDetailsPopup.stat_chip_text("thrust_kilonewtons", 47.0) == "47kN", "a chip writes the unit next to the number")
+	report.check(PartDetailsPopup.stat_chip_text("propellant_capacity_kilograms", 20000.0) == "20t", "large masses are shown in tonnes")
+	report.check(PartDetailsPopup.stat_chip_text("noise_fraction", 0.05) == "5%", "a fraction chip is a percentage")
+	report.check(PartDetailsPopup.stat_chip_text("thrust_kilonewtons", 0.01) == "0.01kN", "a tiny value keeps its digits")
+	report.check(PartDetailsPopup.short_source_tag(solid_engine) == "src: Northrop Grumman ≈", "the source tag names the maker and marks approximations")
+	report.check(PartDetailsPopup.short_source_tag(GameData.part("telemetry_fuel_gauge")).begins_with("src: estimate"), "an estimate says so")
+	report.check(PartDetailsPopup.tradeoff_parts("Cheap and simple, but fires once and burns everything.") == ["Cheap and simple", "fires once and burns everything", ""], "the trade-off splits into a plus and a minus")
+	report.check(PartDetailsPopup.tradeoff_parts("Cheap and heavy. Regulated pressure keeps every pulse at full strength.")[1] == "Cheap and heavy", "a drawback in the first sentence is the minus")
+	report.check(PartDetailsPopup.tradeoff_parts("The lightest large tank, and the most expensive.")[1] == "most expensive", "', and the' starts a drawback")
+	report.check(PartDetailsPopup.tradeoff_parts("Keeps every panel steady through a solar flare.") == ["", "", "Keeps every panel steady through a solar flare"], "a sentence with no drawback is neutral, not a benefit")
+	report.check(not PartDetailsPopup.is_negative_clause("Strong enough to lift a heavy rocket"), "lifting a heavy rocket is praise")
+	# Every catalogue trade-off either names its drawback in the minus half,
+	# or names none and is shown neutral; never a drawback in green.
+	for category in [GameData.CATEGORY_ENGINE, GameData.CATEGORY_TANK, GameData.CATEGORY_TELEMETRY, GameData.CATEGORY_SCIENCE]:
+		for part: Dictionary in GameData.parts_in_category(category):
+			var tradeoff: String = part.get("tradeoff", "")
+			if tradeoff.is_empty():
+				continue
+			var halves: Array[String] = PartDetailsPopup.tradeoff_parts(tradeoff)
+			report.check(not halves[1].is_empty() or not halves[2].is_empty(), "%s: a minus half or a neutral line" % part["id"])
+			report.check(not PartDetailsPopup.is_negative_clause(halves[0]), "%s: no drawback in the plus half" % part["id"])
+	var no_comparison: Array[Dictionary] = PartDetailsPopup.stat_chips(solid_engine)
+	var has_arrow := false
+	for chip in no_comparison:
+		has_arrow = has_arrow or chip["direction"] != 0
+		report.check(chip["glyph"] == "" or PixelGlyphs.has_glyph(chip["glyph"]), "every popup glyph exists")
+	report.check(not has_arrow, "an empty slot shows no arrows")
+	var stronger_engine: Dictionary = GameData.part("engine_solid_basic")
+	var compared_chips: Array[Dictionary] = PartDetailsPopup.stat_chips(stronger_engine, solid_engine)
+	for chip in compared_chips:
+		# The arrow shows the direction the number moved; its colour the effect.
+		if chip["glyph"] == "thrust":
+			report.check(chip["direction"] == 1 and chip["effect"] == 1, "more thrust: up arrow, green")
+		if chip["glyph"] == "mass":
+			report.check(chip["direction"] == 1 and chip["effect"] == -1, "more dry mass: up arrow, red")
+		if chip["glyph"] == "efficiency":
+			report.check(chip["direction"] == -1 and chip["effect"] == -1, "a lower specific impulse: down arrow, red")
+		if chip["glyph"] == "money":
+			report.check(chip["direction"] == 1 and chip["effect"] == -1, "a pricier part: red up arrow on the cost")
+	var lighter_chips: Array[Dictionary] = PartDetailsPopup.stat_chips(solid_engine, stronger_engine)
+	for chip in lighter_chips:
+		if chip["glyph"] == "mass":
+			report.check(chip["direction"] == -1 and chip["effect"] == 1, "a lighter part: green down arrow on the mass")
+	report.check(PartDetailsPopup.delta_arrow_glyph(1) == "arrow_up" and PartDetailsPopup.delta_arrow_color(-1) == ScreenLayout.COLOR_WARNING_RED,
+			"arrow shape follows the direction and colour the effect")
+	var legend: Array[Array] = PartDetailsPopup.legend_entries(GameData.CATEGORY_ENGINE)
+	report.check(legend.size() >= 3 and PixelGlyphs.has_glyph(legend[0][0]), "the legend lists the glyphs of the category")
 
 
 func _check_installing_parts(report: TestReport) -> void:
@@ -359,7 +412,12 @@ func _check_launch_button_and_chips(report: TestReport) -> void:
 	GameState.summary.warnings.append(advice_sentence)
 	console._refresh()
 	report.check(not launch_button.disabled, "advice in warnings does not disable Launch")
-	report.check(console._message_label.text.contains(advice_sentence), "advice in warnings is still shown")
+	report.check(console._message_label.text.contains("test advice that must not block"), "advice in warnings is still shown")
+	report.check(WarningLamps.counts(console._lamps) == Vector2i(0, 1), "advice is one amber lamp in the bezel")
+	# The same sentence twice is one lamp: duplicates are removed on the screen side.
+	GameState.summary.warnings.append(advice_sentence)
+	console._refresh()
+	report.check(console._lamps.size() == 1, "a repeated warning sentence makes one lamp")
 	GameState.summary.warnings.erase(advice_sentence)
 	console._refresh()
 
