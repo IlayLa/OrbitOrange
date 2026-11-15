@@ -36,6 +36,19 @@ func duplicate_pulse() -> Pulse:
 	return copy
 
 
+## Direction of the requested velocity change: 0° along the motion, +90°
+## outward, ±180° against the motion. Zero when no change is requested.
+func direction_angle_degrees() -> float:
+	return rad_to_deg(atan2(delta_v_outward_meters_per_second, delta_v_along_velocity_meters_per_second))
+
+
+## Sets both components from a direction (as in direction_angle_degrees) and a size.
+func set_delta_v_from_angle(angle_degrees: float, delta_v_meters_per_second: float) -> void:
+	var angle_radians := deg_to_rad(angle_degrees)
+	delta_v_along_velocity_meters_per_second = cos(angle_radians) * delta_v_meters_per_second
+	delta_v_outward_meters_per_second = sin(angle_radians) * delta_v_meters_per_second
+
+
 ## Size of the requested velocity change. For a solid motor only the direction
 ## of the two components matters; the size comes from RocketModel.
 func requested_delta_v_meters_per_second() -> float:

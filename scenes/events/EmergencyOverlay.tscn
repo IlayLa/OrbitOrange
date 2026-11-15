@@ -96,8 +96,6 @@ OptionButton/styles/hover = SubResource("Style_hover")
 OptionButton/styles/normal = SubResource("Style_control")
 OptionButton/styles/hover_pressed = SubResource("Style_hover")
 OptionButton/styles/pressed = SubResource("Style_hover")
-LineEdit/styles/focus = SubResource("Style_focus")
-LineEdit/styles/normal = SubResource("Style_control")
 
 [node name="EmergencyOverlay" type="Control"]
 layout_mode = 3
@@ -144,7 +142,6 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-mouse_default_cursor_shape = 2
 
 [node name="Title" type="Label" parent="Panel"]
 unique_name_in_owner = true
@@ -212,7 +209,7 @@ offset_right = 365.0
 offset_bottom = 342.0
 theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
 theme_override_font_sizes/font_size = 13
-text = "Drag from the craft to set the maneuver."
+text = "Press the map and pull back to aim, or drag the arrow tip."
 
 [node name="Approach" type="Label" parent="Panel"]
 unique_name_in_owner = true
@@ -289,7 +286,7 @@ offset_right = 484.0
 offset_bottom = 227.0
 theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
 theme_override_font_sizes/font_size = 13
-text = "Angle (°)"
+text = "Angle"
 
 [node name="StrengthLabel" type="Label" parent="Panel"]
 layout_mode = 0
@@ -299,7 +296,7 @@ offset_right = 608.0
 offset_bottom = 227.0
 theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
 theme_override_font_sizes/font_size = 13
-text = "Strength (m/s)"
+text = "Strength"
 
 [node name="Angle" type="SpinBox" parent="Panel"]
 unique_name_in_owner = true
@@ -310,7 +307,8 @@ offset_right = 484.0
 offset_bottom = 254.0
 min_value = -180.0
 max_value = 180.0
-step = 1.0
+step = 0.1
+suffix = "°"
 
 [node name="Strength" type="SpinBox" parent="Panel"]
 unique_name_in_owner = true
@@ -321,6 +319,7 @@ offset_right = 608.0
 offset_bottom = 254.0
 max_value = 10000.0
 step = 0.01
+suffix = "m/s"
 
 [node name="AngleHelp" type="Label" parent="Panel"]
 layout_mode = 0

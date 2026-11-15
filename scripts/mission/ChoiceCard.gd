@@ -57,6 +57,12 @@ func setup(title: String, body_text: String, chips: Array[Dictionary], card_widt
 	_layout()
 
 
+## The hover text as a wrapped block about as wide as the card, instead of
+## the engine's single long line.
+func _make_custom_tooltip(for_text: String) -> Object:
+	return PixelTooltip.for_control(self, for_text, _card_width_pixels)
+
+
 ## Wraps the title and the body and places the chips for the card width.
 func _layout() -> void:
 	var card_width_pixels: float = _card_width_pixels

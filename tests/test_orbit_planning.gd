@@ -59,6 +59,15 @@ func _check_editing(report: TestReport) -> void:
 	var earth_texture: AtlasTexture = artwork_view.get("_earth_texture")
 	report.check(earth_texture != null and earth_texture.atlas.resource_path == ScreenLayout.ORBIT_PLANNING_BACKGROUND_PATH,
 			"dynamic Earth reuses Amit's supplied sprite")
+	var engine_rows: VBoxContainer = screen.get("_engine_rows")
+	var stage_card: Control = engine_rows.get_child(0) if engine_rows.get_child_count() > 0 else null
+	report.check(stage_card != null and stage_card.mouse_filter == Control.MOUSE_FILTER_PASS and not stage_card.tooltip_text.is_empty(),
+			"a stage card takes hover, so its tooltip can show, and passes the wheel on to its list")
+	if stage_card != null:
+		var stage_tooltip: Label = stage_card._make_custom_tooltip(stage_card.tooltip_text)
+		report.check(stage_tooltip != null and stage_tooltip.text.contains("\n"), "a stage card's tooltip is wrapped")
+		if stage_tooltip != null:
+			stage_tooltip.free()
 	var state: OrbitState = GameState.summary.ascent.orbit_entry_state
 	var body: Dictionary = GameData.body("earth")
 	var elements: OrbitElements = Kepler.elements_from_state(body[AscentPlanner.GRAVITATIONAL_PARAMETER_KEY], state)
@@ -110,6 +119,9 @@ func _check_editing(report: TestReport) -> void:
 		release.pressed = false
 		screen.call("_input", release)
 		report.check(screen.get("_drag_snapshot") == null, "releasing the mouse clears the fixed drag ghost")
+		_check_typed_direction(report, screen)
+		_check_launch_angle_field(report, screen)
+		_check_slingshot_placement(report, screen, view, body, state, elements)
 		var number: SpinBox = screen.get("_magnitude_number")
 		number.get_line_edit().grab_focus()
 		var delete_key := InputEventKey.new()
@@ -122,7 +134,11 @@ func _check_editing(report: TestReport) -> void:
 		screen.call("_refresh")
 		var original_request_meters_per_second: float = GameState.plan.pulses[0].requested_delta_v_meters_per_second()
 		var original_angle_radians: float = GameState.plan.launch_angle_radians
+		var original_direction_degrees: float = GameState.plan.pulses[0].direction_angle_degrees()
 		screen.call("_on_magnitude_changed", 999.0)
+		screen.call("_on_direction_angle_changed", original_direction_degrees + 45.0)
+		report.check_close(GameState.plan.pulses[0].direction_angle_degrees(), original_direction_degrees, 0.000001,
+				"the typed burn direction respects the launched-plan lock")
 		screen.call("_on_launch_angle_changed", 45.0)
 		screen.call("_delete_selected")
 		screen.call("_add_pulse", point_pixels)
@@ -143,3 +159,104 @@ func _check_editing(report: TestReport) -> void:
 	GameState.plan = saved_plan
 	GameState.summary = saved_summary
 	GameState.trajectory = saved_trajectory
+
+
+## The angle field: 0° along the motion, +90° outward, magnitude kept.
+func _check_typed_direction(report: TestReport, screen: Control) -> void:
+	var pulse: Pulse = GameState.plan.pulses[0]
+	var magnitude_meters_per_second: float = pulse.requested_delta_v_meters_per_second()
+	screen.call("_on_direction_angle_changed", 90.0)
+	screen.call("_process", 0.0)
+	report.check_close(pulse.delta_v_along_velocity_meters_per_second, 0.0, 0.000001, "a typed 90° burn has no along-motion part")
+	report.check_close(pulse.delta_v_outward_meters_per_second, magnitude_meters_per_second, 0.000001,
+			"a typed 90° burn points outward and keeps its magnitude")
+	screen.call("_on_magnitude_changed", 250.0)
+	screen.call("_process", 0.0)
+	report.check_close(pulse.direction_angle_degrees(), 90.0, 0.000001, "a typed magnitude keeps the typed direction")
+	screen.call("_on_direction_angle_changed", -135.0)
+	screen.call("_process", 0.0)
+	var field: SpinBox = screen.get("_direction_number")
+	report.check(field.visible, "the direction field shows for a selected pulse")
+	report.check_close(field.value, -135.0, 0.05, "the direction field shows the pulse's angle from the motion")
+	report.check_close(pulse.requested_delta_v_meters_per_second(), 250.0, 0.000001, "a typed direction keeps the magnitude")
+
+
+## The launch angle field and slider set the plan and follow each other.
+func _check_launch_angle_field(report: TestReport, screen: Control) -> void:
+	var original_angle_radians: float = GameState.plan.launch_angle_radians
+	var field: SpinBox = screen.get("_launch_number")
+	var slider: HSlider = screen.get("_launch_slider")
+	field.value = 42.5
+	report.check_close(GameState.plan.launch_angle_radians, deg_to_rad(42.5), 0.000001, "typing a launch angle sets the plan")
+	report.check_close(slider.value, 42.5, 0.000001, "the launch slider follows the typed angle")
+	slider.value = 30.0
+	report.check_close(field.value, 30.0, 0.000001, "the launch field follows the slider")
+	GameState.plan.launch_angle_radians = original_angle_radians
+	screen.call("_refresh")
+	screen.call("_process", 0.0)
+
+
+## Press on the path, pull back: the arrow points opposite the pull, as long as the pull.
+func _check_slingshot_placement(report: TestReport, screen: Control, view: OrbitView, body: Dictionary,
+		state: OrbitState, elements: OrbitElements) -> void:
+	var gravitational_parameter: float = body[AscentPlanner.GRAVITATIONAL_PARAMETER_KEY]
+	var press_state: OrbitState = Kepler.propagate(gravitational_parameter, state, elements.period_seconds * 0.2)
+	var press_pixels: Vector2 = view.world_to_screen(press_state.position_x_meters, press_state.position_y_meters)
+	var first_pulse_id: int = GameState.plan.pulses[0].pulse_id
+	var pulse_count: int = GameState.plan.pulses.size()
+	screen.call("_begin_placement", press_pixels)
+	report.check(GameState.plan.pulses.size() == pulse_count + 1 and screen.get("_drag_mode") == "place",
+			"pressing the path adds a pulse and starts aiming it")
+	screen.call("_process", 0.0)
+	var placed: Pulse = screen.call("_selected_pulse")
+	if placed == null:
+		report.check(false, "the pressed pulse is selected")
+		return
+	screen.call("_update_drag", press_pixels + Vector2(3, 0))
+	screen.call("_process", 0.0)
+	report.check(placed.delta_v_along_velocity_meters_per_second == 100.0 and placed.delta_v_outward_meters_per_second == 0.0,
+			"a press that barely moves keeps the 100 m/s forward default")
+	var allocation: BurnAllocation = screen.call("_allocation_for", placed.pulse_id)
+	if allocation == null or allocation.before_state == null:
+		report.check(false, "the pressed pulse is reachable")
+		return
+	var probe := Pulse.new()
+	probe.delta_v_along_velocity_meters_per_second = 300.0
+	probe.delta_v_outward_meters_per_second = 100.0
+	var anchor_pixels: Vector2 = view.world_to_screen(allocation.before_state.position_x_meters, allocation.before_state.position_y_meters)
+	var forward_pixels: Vector2 = PulseGeometry.arrow_direction(view, allocation.before_state, probe)
+	screen.call("_update_drag", anchor_pixels - forward_pixels * PulseGeometry.arrow_length_pixels(500.0))
+	screen.call("_process", 0.0)
+	report.check_close(placed.requested_delta_v_meters_per_second(), 500.0, 0.01, "the pull length sets the burn size")
+	report.check(placed.delta_v_along_velocity_meters_per_second > 0.0 and placed.delta_v_outward_meters_per_second > 0.0,
+			"pulling backwards and inward aims the burn forwards and outward")
+	report.check_close(placed.direction_angle_degrees(), probe.direction_angle_degrees(), 0.01, "the burn points exactly opposite the pull")
+	var release := InputEventMouseButton.new()
+	release.button_index = MOUSE_BUTTON_LEFT
+	release.pressed = false
+	screen.call("_input", release)
+	report.check(screen.get("_drag_mode") == "" and GameState.plan.pulses.size() == pulse_count + 1,
+			"releasing the pull keeps the aimed pulse")
+	report.check(screen.get("_selected_pulse_id") == 0 and not (screen.get("_direction_number") as SpinBox).visible,
+			"a finished placement leaves no pulse selected")
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = anchor_pixels
+	screen.call("_on_view_input", press)
+	screen.call("_input", release)
+	report.check(screen.get("_selected_pulse_id") == placed.pulse_id and GameState.plan.pulses.size() == pulse_count + 1,
+			"clicking an existing pulse selects it without adding another")
+	report.check((screen.get("_direction_number") as SpinBox).visible, "selecting a pulse shows its fields")
+	screen.call("_delete_selected")
+	screen.call("_process", 0.0)
+	screen.call("_begin_placement", press_pixels)
+	var escape := InputEventKey.new()
+	escape.pressed = true
+	escape.keycode = KEY_ESCAPE
+	screen.call("_input", escape)
+	screen.call("_process", 0.0)
+	report.check(GameState.plan.pulses.size() == pulse_count and screen.get("_drag_mode") == "",
+			"Escape while placing removes the new pulse")
+	screen.set("_selected_pulse_id", first_pulse_id)
+	screen.call("_refresh")

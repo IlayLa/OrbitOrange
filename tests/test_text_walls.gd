@@ -178,6 +178,48 @@ func _check_mission_select(report: TestReport) -> void:
 	for card in screen._quest_contents.get_children():
 		if card is ChoiceCard:
 			report.check(not card.tooltip_text.is_empty(), "a quest card shows its full text on hover")
+			var tooltip: Label = card._make_custom_tooltip(card.tooltip_text)
+			if tooltip == null:
+				continue
+			var tooltip_size: int = tooltip.get_theme_font_size("font_size")
+			var panel_width: float = card.get_theme_stylebox("panel", "TooltipPanel").get_minimum_size().x
+			var widest_card_line := 0.0
+			for line in tooltip.text.split("\n"):
+				widest_card_line = maxf(widest_card_line, PixelGlyphs.text_width(line, tooltip_size))
+			report.check(widest_card_line + panel_width <= card._card_width_pixels,
+					"a quest card's tooltip is no wider than the card (%.0f of %.0f px)" % [widest_card_line + panel_width, card._card_width_pixels])
+			_check_tooltip_lines(report, tooltip.text, card.tooltip_text, card._card_width_pixels, "a quest card's hover text", tooltip_size)
+			tooltip.free()
+	var long_word_text := "fuel: " + "LOX/CH4/".repeat(12) + " end"
+	_check_tooltip_lines(report, "\n".join(PixelTooltip.wrapped_lines(long_word_text)), long_word_text,
+			PixelTooltip.WRAP_WIDTH_PIXELS, "a word wider than the tooltip")
+	report.check("|".join(PixelTooltip.wrapped_lines("a\n\nb")) == "a||b", "a blank line in hover text is kept")
+	report.check(PixelTooltip.make("  ") == null, "empty hover text shows no tooltip")
+	report.check("|".join(PixelTooltip.wrapped_lines("ab\r\ncd\tef")) == "ab|cd ef",
+			"hover text treats a Windows line break as one break and a tab as a space")
+	var planning_themed := Control.new()
+	planning_themed.theme = PlanningStyle.create_theme()
+	GameState.add_child(planning_themed)
+	var planning_tooltip: Label = PixelTooltip.for_control(planning_themed, "Drag the point to move.")
+	report.check(planning_tooltip.get_theme_font_size("font_size") == planning_themed.get_theme_font_size("font_size", "TooltipLabel"),
+			"a tooltip on a screen with its own theme keeps that theme's tooltip size")
+	planning_tooltip.free()
+	planning_themed.free()
+	for quest_help: Control in [screen._quest_header, screen._penalty_pips]:
+		var help_tooltip: Label = quest_help._make_custom_tooltip(quest_help.tooltip_text)
+		report.check(help_tooltip != null, "the quest rules have hover text")
+		if help_tooltip == null:
+			continue
+		_check_tooltip_lines(report, help_tooltip.text, quest_help.tooltip_text, PixelTooltip.WRAP_WIDTH_PIXELS, "the quest rules hover text")
+		help_tooltip.free()
+	var plain_button := Button.new()
+	PixelTooltip.attach(plain_button)
+	report.check(plain_button is Button and plain_button.has_method("_make_custom_tooltip"),
+			"an attached button stays a button and gets the wrapped tooltip")
+	plain_button.free()
+	var tooltip_panel: StyleBoxFlat = screen.get_theme_stylebox("panel", "TooltipPanel") as StyleBoxFlat
+	report.check(tooltip_panel != null and is_equal_approx(tooltip_panel.bg_color.a, 1.0),
+			"the tooltip panel is opaque, so the screen behind never shows through")
 	screen._on_quest_toggled(true, "keep_reserve_placeholder")
 	report.check(screen._budget_label.text.contains("$35M"), "the footer adds the grant live (%s)" % screen._budget_label.text)
 	var widest_budget: String = screen.budget_text({"id": "rich"}, 100.0, 15.0)
@@ -320,3 +362,15 @@ func _check_lamp_focus_and_overflow(report: TestReport) -> void:
 	preview.show_lamps(many_lamps)
 	report.check(preview.focused_lamp_index() == focused_index, "a refresh keeps the focused lamp")
 	preview.free()
+
+
+## Checks wrapped tooltip text: every line fits the width, and the words read
+## the same as the source text (wrapped, never cut).
+func _check_tooltip_lines(report: TestReport, wrapped_text: String, source_text: String, width_pixels: float, what: String,
+		font_size_pixels: int = PixelGlyphs.TEXT_SIZE_PIXELS) -> void:
+	var widest_line := 0.0
+	for line in wrapped_text.split("\n"):
+		widest_line = maxf(widest_line, PixelGlyphs.text_width(line, font_size_pixels))
+	report.check(widest_line <= width_pixels, "%s wraps inside its box (widest line %.0f of %.0f px)" % [what, widest_line, width_pixels])
+	report.check("".join(wrapped_text.split("\n")).replace(" ", "") == "".join(source_text.split("\n")).replace(" ", ""),
+			"%s is wrapped, never cut" % what)

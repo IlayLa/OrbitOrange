@@ -98,6 +98,7 @@ func _check_automatic_emergency(report: TestReport, mission: Dictionary, starts_
 	var strength: SpinBox = overlay.get_node("%Strength")
 	report.check(strength.editable != starts_on_solid, "automatic emergency magnitude is editable only for a liquid start")
 	report.check(not overlay.get_node("%Execute").disabled, "automatic emergency overlay can execute its sequential preview")
+	_check_overlay_gestures(report, overlay, starts_on_solid)
 	overlay.call("_execute_maneuver")
 	report.check(not overlay.visible, "successful automatic emergency closes the overlay")
 	if not starts_on_solid:
@@ -112,3 +113,61 @@ func _check_automatic_emergency(report: TestReport, mission: Dictionary, starts_
 		report.check(before_blocked_preview == flight.vehicle_state.propellant_kilograms_by_stage, "blocked preview preserves every stage's fuel")
 	overlay.free()
 	flight.free()
+
+
+## The overlay aims like the orbit planning screen: a slingshot pull, a direct
+## drag from the arrow tip, the same length scale, and Escape to undo. Each drag
+## starts with a real press through the map's input handler.
+func _check_overlay_gestures(report: TestReport, overlay: Control, is_solid: bool) -> void:
+	var view: OrbitView = overlay.get("_view")
+	var craft: OrbitState = overlay.get("_craft")
+	var angle: SpinBox = overlay.get_node("%Angle")
+	var strength: SpinBox = overlay.get_node("%Strength")
+	var origin_pixels: Vector2 = view.world_to_screen(craft.position_x_meters, craft.position_y_meters)
+	var first_tip_pixels: Vector2 = overlay.call("_arrow_tip")
+	report.check(overlay.call("_pick_part", origin_pixels) == "craft", "emergency: pressing the craft grabs the burn's base")
+	report.check(overlay.call("_pick_part", origin_pixels + (first_tip_pixels - origin_pixels).normalized() * 4.0) == "craft",
+			"emergency: a short default arrow does not hide the craft (the nearer part wins)")
+	var probe := Pulse.new()
+	probe.set_delta_v_from_angle(45.0, 1.0)
+	var forward_pixels: Vector2 = PulseGeometry.arrow_direction(view, craft, probe)
+	var saved_angle_degrees: float = angle.value
+	var saved_strength_meters_per_second: float = strength.value
+	var target_meters_per_second: float = strength.max_value * 0.5
+	var pull_length_pixels: float = PulseGeometry.arrow_length_pixels(target_meters_per_second)
+
+	# A press away from the craft still starts a slingshot, pulled from the press point.
+	var press_pixels: Vector2 = origin_pixels + Vector2(40, 30)
+	overlay.call("_on_map_input", _left_button(press_pixels, true))
+	report.check(overlay.get("_drag_mode") == "slingshot", "emergency: pressing the map starts a slingshot")
+	overlay.call("_update_drag", press_pixels + Vector2(3, 0))
+	report.check_close(angle.value, saved_angle_degrees, 0.0, "emergency: a pull inside the threshold leaves the burn alone")
+	overlay.call("_update_drag", press_pixels - forward_pixels * pull_length_pixels)
+	report.check_close(angle.value, 45.0, 0.5, "emergency: pulling back burns the opposite way")
+	if not is_solid:
+		report.check_close(strength.value, target_meters_per_second, 0.05, "emergency: the pull length sets the strength on the planning scale")
+	var escape := InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	overlay.call("_input", escape)
+	report.check(overlay.get("_drag_mode") == "", "emergency: Escape ends the drag")
+	report.check_close(angle.value, saved_angle_degrees, 0.0, "emergency: Escape restores the angle")
+	report.check_close(strength.value, saved_strength_meters_per_second, 0.0, "emergency: Escape restores the strength")
+
+	overlay.call("_on_map_input", _left_button(overlay.call("_arrow_tip"), true))
+	report.check(overlay.get("_drag_mode") == "arrow", "emergency: pressing the arrow tip grabs it")
+	overlay.call("_update_drag", origin_pixels + forward_pixels * pull_length_pixels)
+	report.check_close(angle.value, 45.0, 0.5, "emergency: dragging the arrow tip points the burn at the cursor")
+	overlay.call("_input", _left_button(origin_pixels, false))
+	report.check(overlay.get("_drag_mode") == "", "emergency: releasing the button ends the drag")
+	# Hand the scenario back the maneuver it set up.
+	angle.value = saved_angle_degrees
+	strength.value = saved_strength_meters_per_second
+
+
+func _left_button(position_pixels: Vector2, is_pressed: bool) -> InputEventMouseButton:
+	var event := InputEventMouseButton.new()
+	event.button_index = MOUSE_BUTTON_LEFT
+	event.pressed = is_pressed
+	event.position = position_pixels
+	return event

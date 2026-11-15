@@ -26,6 +26,8 @@ static func resolve(design: RocketDesign, mission: Dictionary, launch_angle_radi
 	if first_stage == null or thrust_newtons <= weight_newtons:
 		result.can_lift_off = false
 		result.failure_reason = "INSUFFICIENT LIFT-OFF THRUST"
+		result.lift_off_failure_details = "Insufficient lift-off thrust. The engine provides %.1f kN against %.1f kN of weight." % [
+				thrust_newtons / 1000.0, weight_newtons / 1000.0]
 		return _finish(body, result)
 	var target_radius_meters: float = radius_meters + 1000.0 * float(mission.get("target", {}).get("altitude_kilometers", 400.0))
 	if target_radius_meters <= OrbitModel.impact_radius_meters(body):

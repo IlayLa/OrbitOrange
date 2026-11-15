@@ -12,7 +12,6 @@ const PAUSE_LABEL := "II"
 ## Readable names for the alarm codes FlightSimulation puts in active_alarms.
 const ALARM_TEXT_BY_CODE := {
 	"LOW_FUEL": "LOW FUEL",
-	"OVER_TEMPERATURE": "OVER TEMPERATURE",
 	"HAZARD_NEAR": "HAZARD NEAR",
 	# Raised by EventDirector (T07) through FlightSimulation.raise_alert.
 	"THREAT_APPROACH": "THREAT APPROACHING",

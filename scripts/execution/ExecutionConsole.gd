@@ -19,7 +19,6 @@ var clock_panel: ClockPanel
 var objectives_panel: ObjectivesPanel
 var alarm_panel: AlarmPanel
 var radar_panel: RadarPanel
-var temperature_panel: TemperaturePanel
 var angles_panel: AnglesPanel
 var altitude_panel: AltitudePanel
 var delta_v_panel: DeltaVPanel
@@ -64,7 +63,14 @@ func refresh_objectives() -> void:
 
 
 func _create_background() -> void:
-	ScreenLayout.add_mockup_background(self, ExecutionLayout.BACKGROUND_PATH)
+	var background := ScreenLayout.add_mockup_background(self, ExecutionLayout.BACKGROUND_PATH)
+	var bezel := ColorRect.new()
+	bezel.name = "BezelFill"
+	bezel.position = ExecutionLayout.BEZEL_FILL_RECT.position
+	bezel.size = ExecutionLayout.BEZEL_FILL_RECT.size
+	bezel.color = ExecutionLayout.COLOR_BEZEL
+	bezel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	background.add_child(bezel)
 
 
 func _create_panels() -> void:
@@ -77,7 +83,6 @@ func _create_panels() -> void:
 	objectives_panel = ObjectivesPanel.new()
 	add_child(objectives_panel)
 
-	temperature_panel = _add_instrument(TemperaturePanel.new(), ExecutionLayout.TEMPERATURE_SCREEN) as TemperaturePanel
 	angles_panel = _add_instrument(AnglesPanel.new(), ExecutionLayout.ANGLES_SCREEN) as AnglesPanel
 	altitude_panel = _add_instrument(AltitudePanel.new(), ExecutionLayout.ALTITUDE_SCREEN) as AltitudePanel
 	delta_v_panel = _add_instrument(DeltaVPanel.new(), ExecutionLayout.DELTA_V_SCREEN) as DeltaVPanel
@@ -97,7 +102,7 @@ func _create_panels() -> void:
 	add_child(debug_truth_panel)
 
 	_frame_panels = [
-		clock_panel, objectives_panel, temperature_panel, angles_panel, altitude_panel,
+		clock_panel, objectives_panel, angles_panel, altitude_panel,
 		delta_v_panel, acceleration_panel, radar_panel, alarm_panel,
 	]
 

@@ -91,10 +91,14 @@ func _check_radar_scope_range(report: TestReport) -> void:
 
 func _check_sensor_states(report: TestReport, console: ExecutionConsole) -> void:
 	var instruments: Array[InstrumentPanel] = [
-		console.temperature_panel, console.altitude_panel,
-		console.angles_panel, console.angles_panel,
+		console.altitude_panel, console.angles_panel, console.angles_panel,
 	]
-	var rows: Array[int] = [0, 0, AnglesPanel.ATTITUDE_ROW, AnglesPanel.FLIGHT_PATH_ANGLE_ROW]
+	var rows: Array[int] = [0, AnglesPanel.ATTITUDE_ROW, AnglesPanel.FLIGHT_PATH_ANGLE_ROW]
+	var instrument_count := console.get_children().filter(func(child: Node) -> bool: return child is InstrumentPanel).size()
+	report.check(instrument_count == 4, "the console creates only its four active instrument panels")
+	var bezel := console.get_node_or_null("MockupBackground/BezelFill") as ColorRect
+	report.check(bezel != null and bezel.visible and bezel.get_rect() == ExecutionLayout.BEZEL_FILL_RECT,
+			"the retired gauge cutout is covered by the console bezel")
 
 	console.display_frame(ExecutionDemoFrames.frame_for_state(ExecutionDemoFrames.STATE_SENSORS_MISSING))
 	var every_missing := true
@@ -111,7 +115,7 @@ func _check_sensor_states(report: TestReport, console: ExecutionConsole) -> void
 	var every_failed := true
 	for instrument_index in instruments.size():
 		every_failed = every_failed and instruments[instrument_index].value_text(rows[instrument_index]).ends_with("NO SIGNAL")
-	report.check(every_failed, "with failed sensors every instrument reads NO SIGNAL")
+	report.check(every_failed, "with failed sensors every installed instrument reads NO SIGNAL")
 	report.check(console.objectives_panel.shown_text().contains("FUEL NO SIGNAL"),
 			"with a failed fuel gauge the left column reads FUEL NO SIGNAL")
 
@@ -119,7 +123,6 @@ func _check_sensor_states(report: TestReport, console: ExecutionConsole) -> void
 	report.check(console.altitude_panel.value_text() == "412.3 km", "altitude 412300 m reads 412.3 km (got %s)" % console.altitude_panel.value_text())
 	report.check(console.delta_v_panel.value_text() == "4440 m/s",
 			"the delta-v panel (in place of fuel) reads 4440 m/s (got %s)" % console.delta_v_panel.value_text())
-	report.check(console.temperature_panel.value_text() == "301 K", "temperature reads 301 K (got %s)" % console.temperature_panel.value_text())
 
 
 func _check_angles_and_acceleration(report: TestReport, console: ExecutionConsole) -> void:
@@ -210,7 +213,7 @@ func _check_alarm_and_alert(report: TestReport, console: ExecutionConsole) -> vo
 	report.check(not alarm.is_flashing(), "the lamp is dark without active alarms")
 	console.display_frame(ExecutionDemoFrames.frame_for_state(ExecutionDemoFrames.STATE_ALARMS))
 	report.check(alarm.is_flashing(), "the lamp flashes while alarms are active")
-	report.check(alarm.shown_text().contains("LOW FUEL") and alarm.shown_text().contains("OVER TEMPERATURE"),
+	report.check(alarm.shown_text().contains("LOW FUEL") and alarm.shown_text().contains("HAZARD NEAR"),
 			"the alarm texts are listed beside the lamp")
 
 	FlightSimulation.alert_raised.emit("HAZARD_NEAR", "Test alert message")

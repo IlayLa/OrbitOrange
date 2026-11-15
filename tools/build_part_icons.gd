@@ -37,7 +37,6 @@ const SPRITE_ICONS := {
 	"telemetry/telemetry_attitude_sun_sensor.png": "telemetry/tele_sunsensor.png",
 	"telemetry/telemetry_attitude_star_tracker.png": "telemetry/tele_startracker.png",
 	"telemetry/telemetry_fuel_gauge.png": "telemetry/tele_fuel.png",
-	"telemetry/telemetry_temperature_sensor.png": "telemetry/tele_temperature.png",
 	"telemetry/telemetry_computer_basic.png": "telemetry/tele_computer.png",
 	"telemetry/telemetry_computer_hardened.png": "telemetry/tele_bettercomputer.png",
 	"telemetry/telemetry_radar_basic.png": "telemetry/tele_radar.png",
