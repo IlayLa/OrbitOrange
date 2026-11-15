@@ -78,7 +78,15 @@ const LEGEND_KEYS_BY_CATEGORY := {
 	"science": ["data_rate_megabits_per_second", "power_watts", "science_value", DRY_MASS_KEY],
 }
 ## Where a trade-off sentence turns from good to bad, most telling first.
-const TRADEOFF_SEPARATORS: Array[String] = [", but ", "; ", ": ", ", at ", ", for ", ", with ", " but "]
+const TRADEOFF_SEPARATORS: Array[String] = [", but ", "; ", ": ", ". ", ", and the ", ", at ", ", for ", ", with ", " but "]
+## Word starts that mark a drawback in a trade-off clause.
+const TRADEOFF_NEGATIVE_WORDS: Array[String] = [
+	"heav", "expensive", "costly", "price", "falls", "weak", "wasteful", "cannot", "only", "late",
+	"noise", "slow", "glitch", "no use", "hungr", "more mass", "modest", "fires once", "burns everything",
+	"needs", "without", "wants", "fixed", "roughly",
+]
+## Phrases removed before the check because a negative word in them is praise.
+const TRADEOFF_POSITIVE_PHRASES: Array[String] = ["lift a heavy rocket"]
 const RESOLUTION_LEVEL_NAMES: Array[String] = ["blip", "bearing", "shape"]
 ## Names searched in a source, most specific first, for the one-line tag.
 const SOURCE_ORGANIZATIONS: Array[String] = [
@@ -96,6 +104,8 @@ var _chips: Array[Dictionary] = []
 var _fit_star_count: int = -1
 var _plus_lines: Array[String] = []
 var _minus_lines: Array[String] = []
+## A trade-off that names no drawback, shown without a sign.
+var _neutral_lines: Array[String] = []
 var _source_tag: String = ""
 var _section_tops: Dictionary = {}
 
@@ -125,6 +135,7 @@ func show_part(part: Dictionary, science_mission_id: String, wanted_position: Ve
 	var tradeoff_width: float = POPUP_WIDTH_PIXELS - 2.0 * PADDING_PIXELS - PixelGlyphs.GLYPH_ADVANCE_PIXELS
 	_plus_lines = PixelGlyphs.wrap_lines(tradeoff_halves[0], tradeoff_width, TRADEOFF_MAXIMUM_LINE_COUNT)
 	_minus_lines = PixelGlyphs.wrap_lines(tradeoff_halves[1], tradeoff_width, TRADEOFF_MAXIMUM_LINE_COUNT)
+	_neutral_lines = PixelGlyphs.wrap_lines(tradeoff_halves[2], tradeoff_width, TRADEOFF_MAXIMUM_LINE_COUNT)
 	_source_tag = short_source_tag(part)
 	_layout()
 
@@ -214,17 +225,50 @@ static func stat_chip_text(stat_key: String, stat_value: Variant) -> String:
 	return _short_number(number_value)
 
 
-## The trade-off sentence as [good half, bad half]. The sentence is split at
-## the first separator of TRADEOFF_SEPARATORS it contains, tried in order;
-## without one, everything is the good half.
+## The trade-off sentence as [good part, bad part, neutral text]. The
+## sentence is cut into clauses at every separator of TRADEOFF_SEPARATORS;
+## a clause with a word of TRADEOFF_NEGATIVE_WORDS is bad, the others good.
+## A sentence with no bad clause names no drawback: it is returned whole as
+## the neutral text and shown without a + or -, never as a benefit.
 static func tradeoff_parts(tradeoff: String) -> Array[String]:
 	var text := tradeoff.strip_edges().trim_suffix(".")
+	if text.is_empty():
+		return ["", "", ""]
+	var clauses: Array[String] = [text]
 	for separator in TRADEOFF_SEPARATORS:
-		var split_position := text.find(separator)
-		if split_position > 0:
-			return [text.substr(0, split_position).strip_edges(),
-					text.substr(split_position + separator.length()).strip_edges()]
-	return [text, ""]
+		var split_clauses: Array[String] = []
+		for clause in clauses:
+			for piece in clause.split(separator, false):
+				if not piece.strip_edges().is_empty():
+					split_clauses.append(piece.strip_edges())
+		clauses = split_clauses
+	var good_clauses: PackedStringArray = []
+	var bad_clauses: PackedStringArray = []
+	for clause in clauses:
+		if is_negative_clause(clause):
+			bad_clauses.append(clause)
+		else:
+			good_clauses.append(clause)
+	if bad_clauses.is_empty():
+		return ["", "", text]
+	return [", ".join(good_clauses), ", ".join(bad_clauses), ""]
+
+
+## True when a clause names a drawback: a word of TRADEOFF_NEGATIVE_WORDS
+## starts a word in it ("glitch" matches "glitches"). Phrases of
+## TRADEOFF_POSITIVE_PHRASES are removed first ("lift a heavy rocket").
+static func is_negative_clause(clause: String) -> bool:
+	var lower_clause := " " + clause.to_lower()
+	for positive_phrase in TRADEOFF_POSITIVE_PHRASES:
+		lower_clause = lower_clause.replace(positive_phrase, "")
+	for negative_word in TRADEOFF_NEGATIVE_WORDS:
+		var word_position := lower_clause.find(negative_word)
+		while word_position >= 0:
+			var previous_character := lower_clause[word_position - 1] if word_position > 0 else " "
+			if not (previous_character >= "a" and previous_character <= "z"):
+				return true
+			word_position = lower_clause.find(negative_word, word_position + 1)
+	return false
 
 
 ## A one-line source tag, for example "src: Northrop Grumman" or
@@ -383,6 +427,9 @@ func _layout() -> void:
 	if not _minus_lines.is_empty() and not _minus_lines[0].is_empty():
 		_section_tops["minus"] = next_top
 		next_top += _minus_lines.size() * PixelGlyphs.LINE_HEIGHT_PIXELS + 1.0
+	if not _neutral_lines.is_empty() and not _neutral_lines[0].is_empty():
+		_section_tops["neutral"] = next_top
+		next_top += _neutral_lines.size() * PixelGlyphs.LINE_HEIGHT_PIXELS + 1.0
 	if not _source_tag.is_empty():
 		next_top += 2.0
 		_section_tops["source"] = next_top
@@ -418,6 +465,9 @@ func _draw() -> void:
 		_draw_tradeoff("plus", _plus_lines, PixelGlyphs.COLOR_GOOD_GREEN)
 	if _section_tops.has("minus"):
 		_draw_tradeoff("minus", _minus_lines, ScreenLayout.COLOR_WARNING_RED)
+	if _section_tops.has("neutral"):
+		# No glyph: "neutral" is not a glyph name, so only the text is drawn.
+		_draw_tradeoff("neutral", _neutral_lines, ScreenLayout.COLOR_TEXT_LIGHT)
 	if _section_tops.has("source"):
 		var source_top: float = _section_tops["source"]
 		draw_line(Vector2(PADDING_PIXELS, source_top - 2.0), Vector2(PADDING_PIXELS + inner_width, source_top - 2.0),

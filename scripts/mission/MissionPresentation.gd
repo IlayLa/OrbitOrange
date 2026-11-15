@@ -154,13 +154,47 @@ static func group_explanation(group: Dictionary) -> String:
 	return "\n".join(sentences)
 
 
-## The lamp severity of a flight event, for its timeline pip: BLOCKING when
-## the outcome reads as damage, OK when the player reacted, WARNING when the
-## event was only observed. Shape and colour both follow it.
+## Severity of the outcomes EventDirector and EventFaults (T07) write in the
+## event log. The log has no structured severity field (FlightResult.gd), so
+## known outcomes are looked up here first.
+const EVENT_OUTCOME_SEVERITIES := {
+	"collision": WarningLamps.Severity.BLOCKING,
+	"damage": WarningLamps.Severity.BLOCKING,
+	"sensor failed": WarningLamps.Severity.BLOCKING,
+	"engine failed": WarningLamps.Severity.BLOCKING,
+	"engine weakened": WarningLamps.Severity.BLOCKING,
+	"leak started": WarningLamps.Severity.BLOCKING,
+	"interference": WarningLamps.Severity.WARNING,
+	"pending": WarningLamps.Severity.WARNING,
+	"threat avoided": WarningLamps.Severity.OK,
+	"skipped": WarningLamps.Severity.OK,
+}
+## Whole words that mark damage in an outcome not listed above.
+const EVENT_DAMAGE_WORDS: Array[String] = ["collision", "collided", "destroyed", "hit", "lost", "failed", "failure", "damage", "damaged", "leak"]
+## Whole words that mark a harmless outcome, or cancel a damage word
+## ("Collision avoided", "No damage").
+const EVENT_SAFE_WORDS: Array[String] = ["avoided", "prevented", "no", "without", "safe", "safely", "clear", "skipped", "none"]
+
+
+## The lamp severity of a flight event, for its timeline pip: BLOCKING (✖)
+## for damage, OK (●) for a harmless outcome or one the player reacted to,
+## WARNING (▲) for an event that was only watched. Known T07 outcomes come
+## from EVENT_OUTCOME_SEVERITIES; other text is read word by word, and a
+## safe word such as "avoided" or "no" outweighs a damage word.
 static func event_severity(event: Dictionary) -> int:
-	var outcome: String = str(event.get("outcome", "")).to_lower()
-	for damage_word in ["collision", "destroy", "hit", "lost", "fail", "damage"]:
-		if outcome.contains(damage_word):
+	var outcome: String = str(event.get("outcome", "")).strip_edges().to_lower()
+	if EVENT_OUTCOME_SEVERITIES.has(outcome):
+		return EVENT_OUTCOME_SEVERITIES[outcome]
+	var words: PackedStringArray = []
+	for word in outcome.replace("-", " ").replace(",", " ").replace(".", " ").split(" ", false):
+		words.append(word)
+	var has_safe_word := false
+	for safe_word in EVENT_SAFE_WORDS:
+		has_safe_word = has_safe_word or words.has(safe_word)
+	if has_safe_word:
+		return WarningLamps.Severity.OK
+	for damage_word in EVENT_DAMAGE_WORDS:
+		if words.has(damage_word):
 			return WarningLamps.Severity.BLOCKING
 	if event.get("did_player_react", false):
 		return WarningLamps.Severity.OK

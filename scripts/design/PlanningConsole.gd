@@ -33,9 +33,6 @@ const MESSAGE_FONT_SIZE_PIXELS := 8
 const BUTTON_FONT_SIZE_PIXELS := 10
 const BACK_BUTTON_FONT_SIZE_PIXELS := 8
 const LAMP_BAR_HEIGHT_PIXELS := 13.0
-## Scale of the orbit view on the small overview monitor.
-const OVERVIEW_BODY_RADIUS_PIXELS := 45.0
-const OVERVIEW_PIXELS_PER_KILOMETER := 0.05
 
 const MESSAGE_NO_MISSION := "No mission selected."
 const MESSAGE_READY := "Ready to launch."
@@ -406,20 +403,26 @@ func _update_message() -> void:
 		return
 	var sentence := _active_lamp_sentence
 	var severity := _active_lamp_severity
+	var hidden_lamp_count := 0
 	if sentence.is_empty() and not _lamps.is_empty():
 		sentence = _lamps[0]["sentence"]
 		severity = _lamps[0]["severity"]
-	_message_label.text = message_line(sentence, severity)
+		hidden_lamp_count = _lamps.size() - 1
+	_message_label.text = message_line(sentence, severity, hidden_lamp_count)
 
 
 ## The BBCode of the message line for one lamp sentence ("" means ready).
-static func message_line(sentence: String, severity: int) -> String:
+## hidden_lamp_count other lit lamps are announced as "(+N more)".
+static func message_line(sentence: String, severity: int, hidden_lamp_count: int = 0) -> String:
 	if sentence.is_empty():
 		return MESSAGE_READY
 	var color_code: String = PixelGlyphs.lamp_color(severity).to_html(false)
 	var mark := "x" if severity == WarningLamps.Severity.BLOCKING else "!"
 	var lead := "Cannot launch: " if severity == WarningLamps.Severity.BLOCKING else ""
-	return "[color=#%s][b]%s[/b] %s%s[/color]" % [color_code, mark, lead, sentence.replace("[", "[lb]")]
+	var more_text := ""
+	if hidden_lamp_count > 0:
+		more_text = "  [color=#%s](+%d more)[/color]" % [PixelGlyphs.COLOR_MUTED_TEXT.to_html(false), hidden_lamp_count]
+	return "[color=#%s][b]%s[/b] %s%s[/color]%s" % [color_code, mark, lead, sentence.replace("[", "[lb]"), more_text]
 
 
 func _on_active_lamp_changed(sentence: String, severity: int) -> void:

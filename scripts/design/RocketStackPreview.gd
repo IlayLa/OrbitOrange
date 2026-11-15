@@ -182,11 +182,16 @@ func _rebuild_blocks() -> void:
 
 
 ## One lamp beside each stage, and one beside the nose cone for sentences
-## about the whole rocket. A pinned lamp stays pinned while its sentence lasts.
+## about the whole rocket. A pinned lamp stays pinned while its sentence
+## lasts; the focused lamp keeps the focus while its stage (or the rocket
+## lamp) is still there.
 func _rebuild_lamp_spots() -> void:
 	var pinned_sentence := ""
 	if _pinned_lamp_index >= 0 and _pinned_lamp_index < _lamp_spots.size():
 		pinned_sentence = _lamp_spots[_pinned_lamp_index]["sentence"]
+	var focused_stage_id: int = -2
+	if _focused_lamp_index >= 0 and _focused_lamp_index < _lamp_spots.size():
+		focused_stage_id = _lamp_spots[_focused_lamp_index]["stage_id"]
 	_lamp_spots.clear()
 	_hovered_lamp_index = -1
 	_focused_lamp_index = -1
@@ -205,6 +210,7 @@ func _rebuild_lamp_spots() -> void:
 			"rect": Rect2(Vector2(lamp_left_pixels, roundf(stage_rect.get_center().y - 3.0)), Vector2(7, 7)),
 			"severity": severity,
 			"sentence": sentence,
+			"stage_id": stage.stage_id,
 		})
 	var rocket_sentences: PackedStringArray = []
 	var rocket_severity: int = WarningLamps.Severity.OK
@@ -217,10 +223,13 @@ func _rebuild_lamp_spots() -> void:
 			"rect": Rect2(Vector2(lamp_left_pixels, roundf(_nose_cone_points[0].y - 8.0)), Vector2(7, 7)),
 			"severity": rocket_severity,
 			"sentence": " ".join(rocket_sentences),
+			"stage_id": -1,
 		})
 	for lamp_index in _lamp_spots.size():
 		if _lamp_spots[lamp_index]["sentence"] == pinned_sentence and not pinned_sentence.is_empty():
 			_pinned_lamp_index = lamp_index
+		if _lamp_spots[lamp_index]["stage_id"] == focused_stage_id:
+			_focused_lamp_index = lamp_index
 
 
 func _stack_right_pixels() -> float:
@@ -275,6 +284,7 @@ func _draw() -> void:
 		draw_colored_polygon(_nose_cone_points, COLOR_NOSE_CONE)
 		draw_polyline(_nose_cone_points + PackedVector2Array([_nose_cone_points[0]]), COLOR_OUTLINE, 1.0)
 	_draw_selection_outline()
+	_draw_next_tank_chip()
 	_draw_lamps()
 
 
@@ -393,6 +403,27 @@ func _draw_icon(block_rect: Rect2, part_id: String) -> void:
 	draw_texture_rect(icon, icon_rect, false)
 
 
+## The text of the "next tank" chip, or "" when no stage is selected: the
+## selected stage (orange outline and tag) receives the next tank, and a
+## click on another stage tag changes it.
+func next_tank_text() -> String:
+	if not is_interactive or selected_stage_id == 0 or _stage_number(selected_stage_id) == 0:
+		return ""
+	return "next tank → S%d" % _stage_number(selected_stage_id)
+
+
+## A small chip at the top left of the preview, in the orange of the
+## selected stage, naming the stage that gets the next tank.
+func _draw_next_tank_chip() -> void:
+	var chip_text: String = next_tank_text()
+	if chip_text.is_empty():
+		return
+	var chip_rect := Rect2(Vector2(2, 2), Vector2(PixelGlyphs.chip_width("fuel", chip_text) + 4.0, 11.0))
+	draw_rect(chip_rect, Color(ScreenLayout.COLOR_SPACE_BLACK, 0.8))
+	draw_rect(chip_rect, ScreenLayout.COLOR_ACCENT_ORANGE, false, 1.0)
+	PixelGlyphs.draw_chip(self, chip_rect.position + Vector2(2, 1), "fuel", chip_text, ScreenLayout.COLOR_ACCENT_ORANGE)
+
+
 func _draw_selection_outline() -> void:
 	if not is_interactive or selected_stage_id == 0:
 		return
@@ -483,15 +514,8 @@ func _gui_input(event: InputEvent) -> void:
 		var is_next: bool = event.is_action_pressed("ui_focus_next")
 		var is_previous: bool = event.is_action_pressed("ui_focus_prev")
 		if is_next or is_previous:
-			var next_index: int = _focused_lamp_index + (1 if is_next else -1)
-			if next_index < 0 or next_index >= _lamp_spots.size():
-				# Past the last lamp, Tab moves the focus on as usual.
-				_focused_lamp_index = -1
-				queue_redraw()
-				return
-			_focused_lamp_index = next_index
-			accept_event()
-			queue_redraw()
+			if step_lamp_focus(1 if is_next else -1):
+				accept_event()
 		elif event.is_action_pressed("ui_accept") and _focused_lamp_index >= 0:
 			accept_event()
 			toggle_lamp_pin(_focused_lamp_index)
@@ -507,6 +531,29 @@ func _gui_input(event: InputEvent) -> void:
 			if clicked_block_index >= 0:
 				accept_event()
 				_report_click(_blocks[clicked_block_index])
+
+
+## Moves the keyboard focus one lamp on (step 1) or back (step -1). From no
+## focus, back starts at the last lamp. Returns false when the focus leaves
+## the lamps past either end, so that Tab moves on as usual.
+func step_lamp_focus(step: int) -> bool:
+	if _lamp_spots.is_empty():
+		return false
+	var next_index: int = _focused_lamp_index + step
+	if _focused_lamp_index < 0:
+		next_index = 0 if step > 0 else _lamp_spots.size() - 1
+	if next_index < 0 or next_index >= _lamp_spots.size():
+		_focused_lamp_index = -1
+		queue_redraw()
+		return false
+	_focused_lamp_index = next_index
+	queue_redraw()
+	return true
+
+
+## The index of the lamp with the keyboard focus, or -1.
+func focused_lamp_index() -> int:
+	return _focused_lamp_index
 
 
 ## Pins the sentence of this lamp, or unpins it when it is pinned already.

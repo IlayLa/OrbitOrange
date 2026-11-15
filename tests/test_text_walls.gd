@@ -14,6 +14,7 @@ func run_tests(report: TestReport) -> void:
 	_check_mission_select(report)
 	_check_final_screen(report)
 	_check_data_sources_codex(report)
+	_check_lamp_focus_and_overflow(report)
 
 
 func _check_number_format(report: TestReport) -> void:
@@ -21,6 +22,8 @@ func _check_number_format(report: TestReport) -> void:
 	report.check(NumberFormat.money(30.0) == "$30M", "whole money has no decimals")
 	report.check(NumberFormat.money(16.55) == "$16.6M", "money rounds to one decimal")
 	report.check(NumberFormat.money(-3.0) == "−$3M", "negative money has a minus sign")
+	report.check(NumberFormat.money(-0.04) == "$0M", "money that rounds to zero has no minus sign")
+	report.check(NumberFormat.money(-0.06) == "−$0.1M", "money that rounds below zero keeps its sign")
 	report.check(NumberFormat.duration(16635.0) == "4h37m", "16635 seconds read 4h37m")
 	report.check(NumberFormat.duration(725.0) == "12m05s", "under an hour shows minutes and seconds")
 	report.check(NumberFormat.duration(45.9) == "45s", "under a minute shows seconds")
@@ -116,7 +119,15 @@ func _check_score_groups(report: TestReport) -> void:
 	report.check(MissionPresentation.group_explanation(groups[0]).contains("Eccentricity off."), "the full sentence stays one click away")
 	report.check(MissionPresentation.event_severity({"outcome": "Collision", "did_player_react": false}) == WarningLamps.Severity.BLOCKING, "damage is a red pip")
 	report.check(MissionPresentation.event_severity({"outcome": "Avoided", "did_player_react": true}) == WarningLamps.Severity.OK, "a reaction is a green pip")
-	report.check(MissionPresentation.event_severity({"outcome": "Passed safely", "did_player_react": false}) == WarningLamps.Severity.WARNING, "an observed event is an amber pip")
+	report.check(MissionPresentation.event_severity({"outcome": "Passed safely", "did_player_react": false}) == WarningLamps.Severity.OK, "a safe pass is a green pip")
+	report.check(MissionPresentation.event_severity({"outcome": "Pending", "did_player_react": false}) == WarningLamps.Severity.WARNING, "an unresolved event is an amber pip")
+	report.check(MissionPresentation.event_severity({"outcome": "Observed", "did_player_react": false}) == WarningLamps.Severity.WARNING, "an event only watched is an amber pip")
+	report.check(MissionPresentation.event_severity({"outcome": "Collision avoided", "did_player_react": true}) == WarningLamps.Severity.OK, "'Collision avoided' is not damage")
+	report.check(MissionPresentation.event_severity({"outcome": "No damage", "did_player_react": false}) == WarningLamps.Severity.OK, "'No damage' is not damage")
+	report.check(MissionPresentation.event_severity({"outcome": "White-out", "did_player_react": false}) == WarningLamps.Severity.WARNING, "'white-out' does not match 'hit'")
+	report.check(MissionPresentation.event_severity({"outcome": "Threat avoided", "did_player_react": false}) == WarningLamps.Severity.OK, "T07's avoided threat is green")
+	report.check(MissionPresentation.event_severity({"outcome": "Engine failed", "did_player_react": false}) == WarningLamps.Severity.BLOCKING, "T07's engine failure is damage")
+	report.check(MissionPresentation.event_severity({"outcome": "Sensor failed", "did_player_react": true}) == WarningLamps.Severity.BLOCKING, "damage stays damage after a reaction")
 
 
 func _check_orbit_schematic(report: TestReport) -> void:
@@ -156,6 +167,9 @@ func _check_mission_select(report: TestReport) -> void:
 			report.check(card._body_lines.size() <= ChoiceCard.MAXIMUM_BODY_LINE_COUNT, "a science card shows at most two lines")
 			report.check(card.fit_star_count >= 0, "a science card shows fit stars")
 	report.check(screen._budget_label.text.contains("$30M"), "the footer shows the budget as money")
+	report.check(screen.lit_penalty_pip_index(0) == -1, "no quest ticked lights no penalty pip")
+	report.check(screen.lit_penalty_pip_index(2) == 1, "two quests light only the -15 total, not -5 and -15")
+	report.check(screen.lit_penalty_pip_index(5) == 2, "more than three quests light the -30 total")
 	report.check(screen.quest_rule_text({"type": "reserve_delta_v_at_most", "delta_v_meters_per_second": 10}) == "end reserve ≤10m/s",
 			"the quest rule is a chip, never cut from the card")
 	for card in screen._quest_contents.get_children():
@@ -193,6 +207,22 @@ func _check_final_screen(report: TestReport) -> void:
 	screen.select_event(0)
 	report.check(screen._detail_label.text.contains("Test explanation sentence."), "clicking a pip shows the event explanation")
 	report.check(screen._detail_label.text.contains("10m00s"), "event times use NumberFormat")
+	# Keyboard: the bars and the pips take the focus and answer the arrow keys.
+	report.check(screen._bars.focus_mode == Control.FOCUS_ALL and screen._timeline.focus_mode == Control.FOCUS_ALL, "bars and pips can take the keyboard focus")
+	screen.focus_group(0)
+	screen._on_bars_input(_key_event(KEY_DOWN))
+	report.check(screen._focused_group_index == 1, "Down moves the focus to the next bar")
+	screen._on_bars_input(_key_event(KEY_ENTER))
+	report.check(screen._detail_label.text.contains("BUDGET"), "Enter opens the focused bar's sentence")
+	screen._on_bars_input(_key_event(KEY_UP))
+	screen._on_bars_input(_key_event(KEY_UP))
+	report.check(screen._focused_group_index == 0, "Up stops at the first bar")
+	screen.focus_event(0)
+	screen._on_timeline_input(_key_event(KEY_RIGHT))
+	report.check(screen._focused_event_index == 0, "Right stops at the last pip")
+	screen.select_group(-1)
+	screen._on_timeline_input(_key_event(KEY_ENTER))
+	report.check(screen._detail_label.text.contains("Test explanation sentence."), "Enter opens the focused pip's event")
 	screen.free()
 	GameState.score = saved_score
 	GameState.flight_result = saved_result
@@ -210,3 +240,50 @@ func _check_data_sources_codex(report: TestReport) -> void:
 	codex.open_at("engine_solid_kick")
 	report.check(codex.visible, "the codex opens at a part")
 	codex.free()
+
+
+func _key_event(keycode: Key) -> InputEventKey:
+	var key_event := InputEventKey.new()
+	key_event.keycode = keycode
+	key_event.physical_keycode = keycode
+	key_event.pressed = true
+	return key_event
+
+
+func _check_lamp_focus_and_overflow(report: TestReport) -> void:
+	var many_lamps: Array[Dictionary] = []
+	for stage_number in range(1, 13):
+		many_lamps.append({"severity": WarningLamps.Severity.WARNING, "sentence": "Stage %d advice." % stage_number,
+				"stage_number": stage_number, "pulse_number": 0, "target_text": "S%d" % stage_number})
+	var lamp_bar := LampBar.new()
+	lamp_bar.size = Vector2(160, 13)
+	lamp_bar.set_lamps(many_lamps)
+	var entries: Array[Dictionary] = lamp_bar.entries()
+	report.check(entries.size() < many_lamps.size() and entries.back().get("is_overflow", false), "lamps past the edge become one +N chip")
+	var hidden_count: int = many_lamps.size() - (entries.size() - 1)
+	report.check(entries.back()["target_text"] == "+%d" % hidden_count, "the overflow chip counts the hidden lamps")
+	report.check(entries.back()["sentence"].contains("Stage 12 advice."), "the overflow chip holds the hidden sentences")
+	report.check(lamp_bar._chip_index_at(Vector2(158, 6)) == -1 or lamp_bar._chip_index_at(Vector2(158, 6)) == entries.size() - 1, "nothing past the visible chips can be clicked")
+	report.check(lamp_bar.step_focus(-1) and lamp_bar.active_lamp_index() == entries.size() - 1, "Shift+Tab from no focus wraps to the last chip")
+	lamp_bar.set_lamps(many_lamps)
+	report.check(lamp_bar.active_lamp_index() == entries.size() - 1, "a refresh keeps the focused chip")
+	lamp_bar.free()
+
+	var planning_console_script: GDScript = load("res://scripts/design/PlanningConsole.gd")
+	report.check(planning_console_script.message_line("Stage 1 advice.", WarningLamps.Severity.WARNING, 2).contains("(+2 more)"), "the message says how many more lamps are lit")
+
+	var design := RocketDesign.new()
+	design.add_stage("engine_liquid_small", "tank_aluminium_blowdown")
+	var upper_stage: Stage = design.add_stage("engine_liquid_small")
+	var preview := RocketStackPreview.new()
+	preview.is_interactive = true
+	preview.size = ScreenLayout.ROCKET_DESIGN_PREVIEW_SCREEN.size
+	preview.show_design(design, upper_stage.stage_id)
+	preview.show_lamps(many_lamps)
+	report.check(preview.next_tank_text() == "next tank → S2", "the selected stage is named as the next tank's stage")
+	report.check(preview.step_lamp_focus(-1) and preview.focused_lamp_index() == preview.lamp_spots().size() - 1, "Shift+Tab into the stack starts at the last lamp")
+	var focused_index: int = preview.focused_lamp_index()
+	preview.show_design(design, upper_stage.stage_id)
+	preview.show_lamps(many_lamps)
+	report.check(preview.focused_lamp_index() == focused_index, "a refresh keeps the focused lamp")
+	preview.free()

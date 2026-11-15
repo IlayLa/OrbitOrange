@@ -21,7 +21,7 @@ const HEADER_HEIGHT_PIXELS := 16.0
 const QUEST_HEADER_HEIGHT_PIXELS := 30.0
 const CARD_GAP_PIXELS := 4
 const MISSION_CARD_LIST_MAXIMUM_HEIGHT_PIXELS := 102.0
-const SCHEMATIC_HEIGHT_PIXELS := 148.0
+const SCHEMATIC_HEIGHT_PIXELS := 140.0
 const QUEST_PENALTY_POINTS: Array[int] = [5, 15, 30]
 const QUEST_SUCCESS_POINTS := 20
 const COLOR_HEADER := Color("ffd27a")
@@ -59,7 +59,7 @@ func _ready() -> void:
 	var quest_column: Control = _add_column(2)
 	_quest_header = _add_header(quest_column, "QUESTS", "optional", QUEST_HEADER_HEIGHT_PIXELS)
 	_quest_header.mouse_filter = Control.MOUSE_FILTER_STOP
-	_quest_header.tooltip_text = "Each quest adds its grant to the budget. A failed quest gives the grant back, and failures cost 5, 15 or 30 points in total for 1, 2 or 3 failed quests. A quest done earns 20 points."
+	_quest_header.tooltip_text = "Each quest adds its grant to the budget. A failed quest gives the grant back. Failures cost 5, 15 or 30 points in total (not added up) for 1, 2 or 3 failed quests; the lit pip is the total if every ticked quest fails. A quest done earns 20 points."
 	_quest_header.draw.connect(_draw_penalty_pips)
 	_quest_contents = _add_card_list(quest_column, QUEST_HEADER_HEIGHT_PIXELS)
 	_add_waiting_text(_details_contents)
@@ -154,6 +154,14 @@ func _redraw_details() -> void:
 	if _chosen_mission.get("side_quests", []).is_empty():
 		_add_waiting_text(_quest_contents, "No quests for this mission.")
 	_quest_header.queue_redraw()
+
+
+## The index of the one penalty pip to light for this many ticked quests,
+## or -1 with none ticked. Penalties are totals, so one pip is the whole risk.
+static func lit_penalty_pip_index(ticked_quest_count: int) -> int:
+	if ticked_quest_count <= 0:
+		return -1
+	return mini(ticked_quest_count, QUEST_PENALTY_POINTS.size()) - 1
 
 
 ## The quest's rule as a chip, so that it is never cut from the card:
@@ -357,21 +365,27 @@ func _draw_schematic_legend() -> void:
 		PixelGlyphs.draw_chip(_schematic_legend, Vector2(0, row_top), "band", "science %s" % _band_text(science.get("zone", {})), COLOR_BAND_GLYPH)
 		row_top += 10.0
 	for zone: Dictionary in _chosen_mission.get("hazard_zones", []):
+		var zone_text := "%s %s" % [str(zone.get("name", "hazard")).to_lower(), _band_text(zone)]
+		if _schematic.is_beyond_diagram(zone):
+			zone_text = "%s >%s, off chart" % [str(zone.get("name", "hazard")).to_lower(),
+					NumberFormat.kilometers(float(zone.get("inner_altitude_kilometers", 0.0)))]
 		var used_width: float = PixelGlyphs.draw_chip(_schematic_legend, Vector2(0, row_top), "hazard",
-				"%s %s" % [str(zone.get("name", "hazard")).to_lower(), _band_text(zone)], ScreenLayout.COLOR_WARNING_RED)
+				zone_text, ScreenLayout.COLOR_WARNING_RED)
 		PixelGlyphs.draw_placeholder_badge(_schematic_legend, Vector2(used_width + 4.0, row_top))
 		row_top += 10.0
 
 
-## "if failed" and one pip per penalty step: lit (filled amber, dark number)
-## up to the number of quests ticked, unlit (outline, grey number) after.
+## "if all fail" and one pip per penalty step. The penalties are totals
+## (5, 15 or 30 points for 1, 2 or 3 failed quests), so only the pip for the
+## number of quests ticked is lit (filled amber, dark number); the others are
+## outlines with a grey number.
 func _draw_penalty_pips() -> void:
 	var row_top := 16.0
-	var next_left: float = PixelGlyphs.draw_text(_quest_header, Vector2(0, row_top), "fail costs", PixelGlyphs.COLOR_MUTED_TEXT) + 4.0
+	var next_left: float = PixelGlyphs.draw_text(_quest_header, Vector2(0, row_top), "if all fail", PixelGlyphs.COLOR_MUTED_TEXT) + 4.0
 	for penalty_index in QUEST_PENALTY_POINTS.size():
 		var penalty_text := "−%d" % QUEST_PENALTY_POINTS[penalty_index]
 		var pip_rect := Rect2(Vector2(next_left, row_top), Vector2(PixelGlyphs.text_width(penalty_text) + 6.0, 10.0))
-		var is_lit: bool = penalty_index < _chosen_quest_ids.size()
+		var is_lit: bool = penalty_index == lit_penalty_pip_index(_chosen_quest_ids.size())
 		if is_lit:
 			_quest_header.draw_rect(pip_rect, PixelGlyphs.COLOR_AMBER)
 			PixelGlyphs.draw_text(_quest_header, pip_rect.position + Vector2(3, 0), penalty_text, PixelGlyphs.COLOR_OUTLINE)

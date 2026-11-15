@@ -134,7 +134,21 @@ func _check_part_texts(report: TestReport) -> void:
 	report.check(PartDetailsPopup.stat_chip_text("thrust_kilonewtons", 0.01) == "0.01kN", "a tiny value keeps its digits")
 	report.check(PartDetailsPopup.short_source_tag(solid_engine) == "src: Northrop Grumman ≈", "the source tag names the maker and marks approximations")
 	report.check(PartDetailsPopup.short_source_tag(GameData.part("telemetry_fuel_gauge")).begins_with("src: estimate"), "an estimate says so")
-	report.check(PartDetailsPopup.tradeoff_parts("Cheap and simple, but fires once.") == ["Cheap and simple", "fires once"], "the trade-off splits into a plus and a minus")
+	report.check(PartDetailsPopup.tradeoff_parts("Cheap and simple, but fires once and burns everything.") == ["Cheap and simple", "fires once and burns everything", ""], "the trade-off splits into a plus and a minus")
+	report.check(PartDetailsPopup.tradeoff_parts("Cheap and heavy. Regulated pressure keeps every pulse at full strength.")[1] == "Cheap and heavy", "a drawback in the first sentence is the minus")
+	report.check(PartDetailsPopup.tradeoff_parts("The lightest large tank, and the most expensive.")[1] == "most expensive", "', and the' starts a drawback")
+	report.check(PartDetailsPopup.tradeoff_parts("Keeps every panel steady through a solar flare.") == ["", "", "Keeps every panel steady through a solar flare"], "a sentence with no drawback is neutral, not a benefit")
+	report.check(not PartDetailsPopup.is_negative_clause("Strong enough to lift a heavy rocket"), "lifting a heavy rocket is praise")
+	# Every catalogue trade-off either names its drawback in the minus half,
+	# or names none and is shown neutral; never a drawback in green.
+	for category in [GameData.CATEGORY_ENGINE, GameData.CATEGORY_TANK, GameData.CATEGORY_TELEMETRY, GameData.CATEGORY_SCIENCE]:
+		for part: Dictionary in GameData.parts_in_category(category):
+			var tradeoff: String = part.get("tradeoff", "")
+			if tradeoff.is_empty():
+				continue
+			var halves: Array[String] = PartDetailsPopup.tradeoff_parts(tradeoff)
+			report.check(not halves[1].is_empty() or not halves[2].is_empty(), "%s: a minus half or a neutral line" % part["id"])
+			report.check(not PartDetailsPopup.is_negative_clause(halves[0]), "%s: no drawback in the plus half" % part["id"])
 	var no_comparison: Array[Dictionary] = PartDetailsPopup.stat_chips(solid_engine)
 	var has_arrow := false
 	for chip in no_comparison:

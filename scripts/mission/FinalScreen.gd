@@ -49,6 +49,9 @@ var _detail_label: RichTextLabel
 var _hovered_group_index: int = -1
 var _selected_group_index: int = -1
 var _hovered_event_index: int = -1
+## The bar row and the pip that have the keyboard focus; -1 for none.
+var _focused_group_index: int = -1
+var _focused_event_index: int = -1
 var _selected_event_index: int = -1
 
 
@@ -80,6 +83,10 @@ func _ready() -> void:
 	_bars.draw.connect(_draw_bars)
 	_bars.gui_input.connect(_on_bars_input)
 	_bars.mouse_exited.connect(_on_bars_mouse_exited)
+	# Keyboard: Tab reaches the bars, Up and Down move, Enter opens the sentence.
+	_bars.focus_mode = Control.FOCUS_ALL
+	_bars.focus_entered.connect(func() -> void: focus_group(maxi(0, _focused_group_index)))
+	_bars.focus_exited.connect(_bars.queue_redraw)
 
 	var orbit_panel: Control = _add_panel(ORBIT_PANEL_RECT)
 	orbit_panel.draw.connect(func() -> void:
@@ -105,6 +112,10 @@ func _ready() -> void:
 	_timeline.draw.connect(_draw_timeline)
 	_timeline.gui_input.connect(_on_timeline_input)
 	_timeline.mouse_exited.connect(hover_event.bind(-1))
+	# Keyboard: Left and Right move from pip to pip, Enter opens the event.
+	_timeline.focus_mode = Control.FOCUS_ALL
+	_timeline.focus_entered.connect(func() -> void: focus_event(maxi(0, _focused_event_index)))
+	_timeline.focus_exited.connect(func() -> void: hover_event(-1))
 
 	_detail_label = RichTextLabel.new()
 	_detail_label.bbcode_enabled = true
@@ -159,6 +170,22 @@ func select_event(event_index: int) -> void:
 				str(event.get("explanation", "No explanation supplied.")).replace("[", "[lb]")])
 	_bars.queue_redraw()
 	_timeline.queue_redraw()
+
+
+## Moves the keyboard focus to one bar row (clamped to the rows).
+func focus_group(group_index: int) -> void:
+	if score_groups.is_empty() or _score == null or _score.is_launch_failure:
+		_focused_group_index = -1
+	else:
+		_focused_group_index = clampi(group_index, 0, score_groups.size() - 1)
+	_bars.queue_redraw()
+
+
+## Moves the keyboard focus to one pip (clamped) and shows its name.
+func focus_event(event_index: int) -> void:
+	var event_count: int = _result.event_log.size() if _result != null else 0
+	_focused_event_index = clampi(event_index, 0, event_count - 1) if event_count > 0 else -1
+	hover_event(_focused_event_index)
 
 
 ## Shows the name of one event above its pip, as hovering it does. -1 hides it.
@@ -248,6 +275,10 @@ func _draw_bar_row(group_index: int) -> void:
 		_bars.draw_rect(row_rect, ScreenLayout.COLOR_ACCENT_ORANGE, false, 1.0)
 	elif group_index == _hovered_group_index:
 		_bars.draw_rect(row_rect, ScreenLayout.COLOR_MONITOR_GRID_LINE, false, 1.0)
+	if group_index == _focused_group_index and _bars.has_focus():
+		# Keyboard focus: a second, light frame with a marker at the left.
+		_bars.draw_rect(row_rect.grow(1.0), ScreenLayout.COLOR_MONITOR_GRID_LINE, false, 1.0)
+		_bars.draw_rect(Rect2(row_rect.position.x - 1, row_rect.position.y + 2, 3, row_rect.size.y - 4), ScreenLayout.COLOR_MONITOR_GRID_LINE)
 
 	PixelGlyphs.draw_text(_bars, Vector2(BAR_LEFT_PIXELS, row_top), group["title"], ScreenLayout.COLOR_TEXT_LIGHT, PixelGlyphs.TITLE_SIZE_PIXELS)
 	var tag_text: String = group["tag"]
@@ -327,9 +358,11 @@ func _timeline_duration_seconds() -> float:
 	return maxf(duration_seconds, 1.0)
 
 
-func _pip_x(event: Dictionary) -> float:
+## The x of an event's pip. duration_seconds comes from
+## _timeline_duration_seconds(), computed once by the caller.
+func _pip_x(event: Dictionary, duration_seconds: float) -> float:
 	var strip_rect: Rect2 = _timeline_strip_rect()
-	return roundf(strip_rect.position.x + strip_rect.size.x * clampf(float(event.get("time_seconds", 0.0)) / _timeline_duration_seconds(), 0.0, 1.0))
+	return roundf(strip_rect.position.x + strip_rect.size.x * clampf(float(event.get("time_seconds", 0.0)) / duration_seconds, 0.0, 1.0))
 
 
 func _draw_timeline() -> void:
@@ -338,7 +371,7 @@ func _draw_timeline() -> void:
 	var next_left: float = 8.0 + title_width + 6.0
 	next_left += PixelGlyphs.draw_text(_timeline, Vector2(next_left, 6), "%d" % event_count, ScreenLayout.COLOR_TEXT_LIGHT) + 6.0
 	next_left += PixelGlyphs.draw_placeholder_badge(_timeline, Vector2(next_left, 6)) + 8.0
-	for legend_entry in [[WarningLamps.Severity.OK, "reacted"], [WarningLamps.Severity.WARNING, "observed"], [WarningLamps.Severity.BLOCKING, "damage"]]:
+	for legend_entry in [[WarningLamps.Severity.OK, "safe"], [WarningLamps.Severity.WARNING, "watch"], [WarningLamps.Severity.BLOCKING, "damage"]]:
 		next_left += PixelGlyphs.draw_chip(_timeline, Vector2(next_left, 6), PixelGlyphs.lamp_glyph_name(legend_entry[0]), legend_entry[1],
 				PixelGlyphs.lamp_color(legend_entry[0]), PixelGlyphs.COLOR_MUTED_TEXT) + 8.0
 	PixelGlyphs.draw_text(_timeline, Vector2(TIMELINE_PANEL_RECT.size.x - 140, 6), "score bonus: none", PixelGlyphs.COLOR_MUTED_TEXT)
@@ -349,7 +382,8 @@ func _draw_timeline() -> void:
 	for end_x in [strip_rect.position.x, strip_rect.end.x]:
 		_timeline.draw_line(Vector2(end_x, axis_y - 4), Vector2(end_x, axis_y + 4), ScreenLayout.COLOR_MONITOR_GRID_LINE, 1.0)
 	PixelGlyphs.draw_text(_timeline, Vector2(strip_rect.position.x - 4, strip_rect.end.y + 2), "0s", PixelGlyphs.COLOR_MUTED_TEXT)
-	var end_text := NumberFormat.duration(_timeline_duration_seconds())
+	var duration_seconds: float = _timeline_duration_seconds()
+	var end_text := NumberFormat.duration(duration_seconds)
 	PixelGlyphs.draw_text(_timeline, Vector2(strip_rect.end.x - PixelGlyphs.text_width(end_text) + 4, strip_rect.end.y + 2), end_text, PixelGlyphs.COLOR_MUTED_TEXT)
 	if event_count == 0:
 		PixelGlyphs.draw_text(_timeline, Vector2(strip_rect.get_center().x - 40, axis_y - 12), "no events recorded", PixelGlyphs.COLOR_MUTED_TEXT)
@@ -357,15 +391,17 @@ func _draw_timeline() -> void:
 	for event_index in event_count:
 		var event: Dictionary = _result.event_log[event_index]
 		var severity: int = MissionPresentation.event_severity(event)
-		var pip_x: float = _pip_x(event)
+		var pip_x: float = _pip_x(event, duration_seconds)
 		PixelGlyphs.draw_glyph(_timeline, PixelGlyphs.lamp_glyph_name(severity), Vector2(pip_x - 3, axis_y - 3), PixelGlyphs.lamp_color(severity))
 		if event_index == _selected_event_index:
 			_timeline.draw_rect(Rect2(pip_x - 5, axis_y - 5, 11, 11), ScreenLayout.COLOR_ACCENT_ORANGE, false, 1.0)
+		if event_index == _focused_event_index and _timeline.has_focus():
+			_timeline.draw_rect(Rect2(pip_x - 7, axis_y - 7, 15, 15), ScreenLayout.COLOR_MONITOR_GRID_LINE, false, 1.0)
 	if _hovered_event_index >= 0 and _hovered_event_index < event_count:
 		var hovered_event: Dictionary = _result.event_log[_hovered_event_index]
 		var bubble_text := "%s · %s" % [_event_title(hovered_event), hovered_event.get("outcome", "Unrecorded")]
 		var bubble_width: float = PixelGlyphs.text_width(bubble_text) + 6.0
-		var bubble_left: float = clampf(_pip_x(hovered_event) - bubble_width * 0.5, 2.0, TIMELINE_PANEL_RECT.size.x - bubble_width - 2.0)
+		var bubble_left: float = clampf(_pip_x(hovered_event, duration_seconds) - bubble_width * 0.5, 2.0, TIMELINE_PANEL_RECT.size.x - bubble_width - 2.0)
 		var bubble_rect := Rect2(roundf(bubble_left), strip_rect.end.y + 1, bubble_width, 11)
 		_timeline.draw_rect(bubble_rect, Color(ScreenLayout.COLOR_SPACE_BLACK, 0.95))
 		_timeline.draw_rect(bubble_rect, ScreenLayout.COLOR_MONITOR_GRID_LINE, false, 1.0)
@@ -395,8 +431,9 @@ func _event_index_at(local_position: Vector2) -> int:
 		return -1
 	var nearest_index := -1
 	var nearest_distance: float = PIP_HIT_DISTANCE_PIXELS
+	var duration_seconds: float = _timeline_duration_seconds()
 	for event_index in _result.event_log.size():
-		var distance: float = absf(_pip_x(_result.event_log[event_index]) - local_position.x)
+		var distance: float = absf(_pip_x(_result.event_log[event_index], duration_seconds) - local_position.x)
 		if distance <= nearest_distance:
 			nearest_distance = distance
 			nearest_index = event_index
@@ -417,6 +454,16 @@ func _on_bars_input(event: InputEvent) -> void:
 			var group_index: int = _group_index_at(button_event.position)
 			if group_index >= 0:
 				select_group(-1 if group_index == _selected_group_index else group_index)
+	elif event is InputEventKey and event.is_pressed():
+		if event.is_action_pressed("ui_down"):
+			focus_group(_focused_group_index + 1)
+			_bars.accept_event()
+		elif event.is_action_pressed("ui_up"):
+			focus_group(_focused_group_index - 1)
+			_bars.accept_event()
+		elif event.is_action_pressed("ui_accept") and _focused_group_index >= 0:
+			select_group(-1 if _focused_group_index == _selected_group_index else _focused_group_index)
+			_bars.accept_event()
 
 
 func _on_bars_mouse_exited() -> void:
@@ -436,3 +483,13 @@ func _on_timeline_input(event: InputEvent) -> void:
 			var event_index: int = _event_index_at(button_event.position)
 			if event_index >= 0:
 				select_event(-1 if event_index == _selected_event_index else event_index)
+	elif event is InputEventKey and event.is_pressed():
+		if event.is_action_pressed("ui_right"):
+			focus_event(_focused_event_index + 1)
+			_timeline.accept_event()
+		elif event.is_action_pressed("ui_left"):
+			focus_event(_focused_event_index - 1)
+			_timeline.accept_event()
+		elif event.is_action_pressed("ui_accept") and _focused_event_index >= 0:
+			select_event(-1 if _focused_event_index == _selected_event_index else _focused_event_index)
+			_timeline.accept_event()

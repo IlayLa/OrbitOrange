@@ -25,6 +25,9 @@ const DASH_ON_PIXELS := 3.0
 const DASH_OFF_PIXELS := 3.0
 const TICK_LABEL_SPACING_PIXELS := 9.0
 const ORBIT_SAMPLE_COUNT := 120
+## A hazard belt whose outer edge is within this many times the mission's
+## highest altitude is fitted into the diagram.
+const HAZARD_FIT_FACTOR := 1.5
 const COLOR_SCIENCE_BAND := Color(0.255, 0.443, 0.769, 0.5)
 const COLOR_TARGET_HALO := Color(0.36, 0.76, 0.24, 0.3)
 const COLOR_RING := Color(0.745, 0.827, 0.98, 0.35)
@@ -39,22 +42,25 @@ var mode: Mode = Mode.MISSION
 ## the body's radius. 1 means true scale.
 var altitude_stretch_factor: float = 1.0
 
-var _mission: Dictionary = {}
+var _schematic_mission: Dictionary = {}
 var _science: Dictionary = {}
 var _achieved_elements: OrbitElements
 var _center: Vector2 = Vector2.ZERO
 
 
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED and not _mission.is_empty():
+## OrbitView rescales from the mission's display entry when resized; the
+## schematic fits its own scale to the altitudes it shows instead.
+func _resize_display() -> void:
+	if not _schematic_mission.is_empty():
 		_fit_scale()
+	queue_redraw()
 
 
 ## Shows a mission's target, the chosen science band (or the first one when
 ## science is empty) and its hazard belts.
 func show_mission(mission: Dictionary, science: Dictionary = {}) -> void:
 	mode = Mode.MISSION
-	_mission = mission
+	_schematic_mission = mission
 	_science = science
 	if _science.is_empty() and not mission.get("science_missions", []).is_empty():
 		_science = mission["science_missions"][0]
@@ -67,7 +73,7 @@ func show_mission(mission: Dictionary, science: Dictionary = {}) -> void:
 ## closed orbit was reached.
 func show_result(mission: Dictionary, achieved_elements: OrbitElements, science: Dictionary = {}) -> void:
 	mode = Mode.RESULT
-	_mission = mission
+	_schematic_mission = mission
 	_science = science
 	_achieved_elements = achieved_elements
 	if _achieved_elements != null and (_achieved_elements.is_open or _achieved_elements.semi_major_axis_meters <= 0.0):
@@ -79,11 +85,11 @@ func show_result(mission: Dictionary, achieved_elements: OrbitElements, science:
 ## The achieved mean altitude (from the semi-major axis, as Scoring uses)
 ## minus the target altitude, in kilometres. NAN without an achieved orbit.
 func altitude_miss_kilometers() -> float:
-	if _achieved_elements == null or _mission.is_empty():
+	if _achieved_elements == null or _schematic_mission.is_empty():
 		return NAN
-	var body_radius_meters: float = GameData.body(_mission.get("body_id", "")).get("radius_meters", 0.0)
+	var body_radius_meters: float = GameData.body(_schematic_mission.get("body_id", "")).get("radius_meters", 0.0)
 	var achieved_altitude_kilometers: float = (_achieved_elements.semi_major_axis_meters - body_radius_meters) / 1000.0
-	return achieved_altitude_kilometers - float(_mission.get("target", {}).get("altitude_kilometers", 0.0))
+	return achieved_altitude_kilometers - float(_schematic_mission.get("target", {}).get("altitude_kilometers", 0.0))
 
 
 ## The "ALT ×N" tag text.
@@ -93,24 +99,36 @@ func stretch_tag_text() -> String:
 	return "ALT ×%d not to scale" % roundi(altitude_stretch_factor)
 
 
+## True when a hazard belt starts beyond the edge of the diagram, so it is
+## not drawn and its legend says so.
+func is_beyond_diagram(zone: Dictionary) -> bool:
+	var edge_radius_pixels: float = minf(size.x, size.y) * 0.5
+	return drawn_radius_pixels(float(zone.get("inner_altitude_kilometers", 0.0))) > edge_radius_pixels
+
+
 ## Drawn radius of an altitude, in pixels from the body's centre.
 func drawn_radius_pixels(altitude_kilometers: float) -> float:
 	return maxf(1.0, body_radius_pixels + pixels_per_kilometer * altitude_kilometers)
 
 
 func _fit_scale() -> void:
-	var body: Dictionary = GameData.body(_mission.get("body_id", "earth"))
+	var body: Dictionary = GameData.body(_schematic_mission.get("body_id", "earth"))
 	var highest_altitude_kilometers := 1.0
-	var target: Dictionary = _mission.get("target", {})
+	var target: Dictionary = _schematic_mission.get("target", {})
 	highest_altitude_kilometers = maxf(highest_altitude_kilometers,
 			float(target.get("altitude_kilometers", 0.0)) + float(target.get("altitude_tolerance_kilometers", 0.0)))
-	for ring_altitude_kilometers in _mission.get("display", {}).get("altitude_ring_kilometers", []):
+	for ring_altitude_kilometers in _schematic_mission.get("display", {}).get("altitude_ring_kilometers", []):
 		highest_altitude_kilometers = maxf(highest_altitude_kilometers, float(ring_altitude_kilometers))
-	for zone: Dictionary in _hazard_zones():
-		highest_altitude_kilometers = maxf(highest_altitude_kilometers, float(zone.get("outer_altitude_kilometers", 0.0)))
 	if not _science.is_empty():
 		highest_altitude_kilometers = maxf(highest_altitude_kilometers,
 				float(_science.get("zone", {}).get("outer_altitude_kilometers", 0.0)))
+	# A hazard belt near the mission widens the diagram; one far beyond it
+	# (for example "everything above 2000 km") is listed as off the diagram.
+	var mission_altitude_kilometers: float = highest_altitude_kilometers
+	for zone: Dictionary in _hazard_zones():
+		var outer_altitude_kilometers: float = zone.get("outer_altitude_kilometers", 0.0)
+		if outer_altitude_kilometers <= mission_altitude_kilometers * HAZARD_FIT_FACTOR:
+			highest_altitude_kilometers = maxf(highest_altitude_kilometers, outer_altitude_kilometers)
 	if _achieved_elements != null:
 		var achieved_apoapsis_kilometers: float = (_achieved_elements.apoapsis_radius_meters - float(body.get("radius_meters", 0.0))) / 1000.0
 		if is_finite(achieved_apoapsis_kilometers):
@@ -119,31 +137,36 @@ func _fit_scale() -> void:
 	var half_extent_pixels: float = minf(size.x, size.y) * 0.5 - EDGE_MARGIN_PIXELS
 	var new_body_radius_pixels: float = roundf(clampf(half_extent_pixels * 0.25, SMALLEST_BODY_RADIUS_PIXELS, LARGEST_BODY_RADIUS_PIXELS))
 	var new_pixels_per_kilometer: float = maxf(0.0001, (half_extent_pixels - new_body_radius_pixels) / (highest_altitude_kilometers * 1.04))
-	configure(body, {"display": {"body_radius_pixels": new_body_radius_pixels, "pixels_per_kilometer": new_pixels_per_kilometer}})
+	# Set directly: OrbitView.configure would rescale from the mission's display.
+	_body = body
+	body_radius_pixels = new_body_radius_pixels
+	pixels_per_kilometer = new_pixels_per_kilometer
 	var body_radius_kilometers: float = float(body.get("radius_meters", 1000.0)) / 1000.0
 	altitude_stretch_factor = new_pixels_per_kilometer / (new_body_radius_pixels / body_radius_kilometers)
 
 
 func _hazard_zones() -> Array:
-	return _mission.get("hazard_zones", [])
+	return _schematic_mission.get("hazard_zones", [])
 
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), ScreenLayout.COLOR_SPACE_BLACK)
-	if _mission.is_empty():
+	if _schematic_mission.is_empty():
 		return
 	_center = (size * 0.5).floor()
 	for zone: Dictionary in _hazard_zones():
+		if is_beyond_diagram(zone):
+			continue
 		_draw_hazard_belt(float(zone.get("inner_altitude_kilometers", 0.0)), float(zone.get("outer_altitude_kilometers", 0.0)))
 	if not _science.is_empty():
 		var science_zone: Dictionary = _science.get("zone", {})
 		_draw_band(float(science_zone.get("inner_altitude_kilometers", 0.0)), float(science_zone.get("outer_altitude_kilometers", 0.0)), COLOR_SCIENCE_BAND)
 
-	var ring_altitudes: Array = _mission.get("display", {}).get("altitude_ring_kilometers", [])
+	var ring_altitudes: Array = _schematic_mission.get("display", {}).get("altitude_ring_kilometers", [])
 	for ring_altitude_kilometers in ring_altitudes:
 		draw_arc(_center, drawn_radius_pixels(float(ring_altitude_kilometers)), 0.0, TAU, 96, COLOR_RING, 1.0)
 
-	var target: Dictionary = _mission.get("target", {})
+	var target: Dictionary = _schematic_mission.get("target", {})
 	var target_altitude_kilometers: float = target.get("altitude_kilometers", 0.0)
 	var tolerance_kilometers: float = target.get("altitude_tolerance_kilometers", 0.0)
 	_draw_band(target_altitude_kilometers - tolerance_kilometers, target_altitude_kilometers + tolerance_kilometers, COLOR_TARGET_HALO)
@@ -175,6 +198,10 @@ func _draw_band(inner_altitude_kilometers: float, outer_altitude_kilometers: flo
 func _draw_hazard_belt(inner_altitude_kilometers: float, outer_altitude_kilometers: float) -> void:
 	var inner_radius_pixels: float = drawn_radius_pixels(inner_altitude_kilometers)
 	var outer_radius_pixels: float = maxf(drawn_radius_pixels(outer_altitude_kilometers), inner_radius_pixels + MINIMUM_BAND_WIDTH_PIXELS * 2.0)
+	# Cells beyond the corners are never seen.
+	outer_radius_pixels = minf(outer_radius_pixels, size.length() * 0.5 + 2.0)
+	if inner_radius_pixels >= outer_radius_pixels:
+		return
 	var cell_count: int = ceili(outer_radius_pixels / 2.0) + 1
 	for cell_y in range(-cell_count, cell_count):
 		for cell_x in range(-cell_count, cell_count):

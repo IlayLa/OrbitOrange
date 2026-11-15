@@ -17,8 +17,10 @@ const MINUS_SIGN := "−"
 ## Million USD as "$12.5M": at most one decimal, none for whole amounts.
 ## Negative amounts read "−$3M".
 static func money(amount_million_usd: float) -> String:
-	var sign_text := MINUS_SIGN if amount_million_usd < 0.0 and not is_zero_approx(amount_million_usd) else ""
-	return "%s$%sM" % [sign_text, _at_most_one_decimal(absf(amount_million_usd))]
+	# Rounded first, so that a sign is shown only for what is shown: -0.04 is "$0M".
+	var rounded_tenths: int = roundi(amount_million_usd * 10.0)
+	var sign_text := MINUS_SIGN if rounded_tenths < 0 else ""
+	return "%s$%sM" % [sign_text, _at_most_one_decimal(absf(rounded_tenths / 10.0))]
 
 
 ## Seconds as "4h37m", "12m05s" or "45s". Infinite or negative values read "--".
