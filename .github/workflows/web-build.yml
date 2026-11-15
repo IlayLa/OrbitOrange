@@ -1,0 +1,66 @@
+# Builds the Web export of the game and publishes it on GitHub Pages, so that
+# judges can play it in a browser without installing Godot.
+#
+# One-time setup: repository Settings → Pages → Source: "GitHub Actions".
+name: Web build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+  GODOT_RELEASE_URL: https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Godot and its export templates
+        run: |
+          curl -sSL -o godot.zip "$GODOT_RELEASE_URL/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          curl -sSL -o templates.tpz "$GODOT_RELEASE_URL/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mv templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/"
+          rm -rf godot.zip templates.tpz templates
+
+      - name: Import the project
+        run: ./godot --headless --path . --import
+
+      - name: Export for the Web
+        run: |
+          mkdir -p build/web
+          ./godot --headless --path . --export-release "Web" build/web/index.html
+          test -f build/web/index.pck
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  # Pull requests only check that the export builds; main is published.
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
