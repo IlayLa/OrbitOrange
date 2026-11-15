@@ -12,10 +12,9 @@ signal alert_raised(alarm_code: String, message: String)
 signal flight_started
 signal flight_ended(result: FlightResult)
 
-const SIMULATION_STEP_SECONDS := 5.0
-## The craft, its science and what the screen shows move at least this often,
-## between the SIMULATION_STEP_SECONDS ticks that drive events and faults.
-const MOTION_STEP_SECONDS := 1.0
+## The fixed tick: the craft, its science, events and faults move in steps
+## of this many simulated seconds.
+const SIMULATION_STEP_SECONDS := 1.0
 ## Simulated seconds per real second at normal speed, shown to the player as
 ## "1x". Flights start at this speed and drop back to it before planned pulses
 ## and after alerts.
@@ -79,7 +78,6 @@ var _has_reported_early_fuel_warning: bool = false
 var _burn_diagnostic: Dictionary = {}
 var _mission_duration_seconds: float = 0.0
 var _next_step_time_seconds: float = SIMULATION_STEP_SECONDS
-var _next_motion_time_seconds: float = MOTION_STEP_SECONDS
 var _seconds_not_yet_simulated: float = 0.0
 var _has_reached_stable_orbit: bool = false
 var _launch_failure_explanation: String = ""
@@ -129,7 +127,6 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	event_log = []
 	simulation_time_seconds = 0.0
 	_next_step_time_seconds = SIMULATION_STEP_SECONDS
-	_next_motion_time_seconds = MOTION_STEP_SECONDS
 	_seconds_not_yet_simulated = 0.0
 	time_scale = NORMAL_TIME_SCALE
 	_configure_science(mission)
@@ -256,7 +253,6 @@ func advance_simulation(seconds: float) -> void:
 		if time_scale > NORMAL_TIME_SCALE and is_finite(pulse_time_seconds):
 			slowdown_time_seconds = maxf(simulation_time_seconds, pulse_time_seconds - PULSE_SLOWDOWN_LEAD_SECONDS)
 		var boundary_time_seconds := minf(_next_step_time_seconds, _mission_duration_seconds)
-		boundary_time_seconds = minf(boundary_time_seconds, _next_motion_time_seconds)
 		boundary_time_seconds = minf(boundary_time_seconds, _launch_stage_ends_at_seconds)
 		boundary_time_seconds = minf(boundary_time_seconds, _terminal_boundary_time_seconds())
 		boundary_time_seconds = minf(boundary_time_seconds, pulse_time_seconds)
@@ -273,8 +269,6 @@ func advance_simulation(seconds: float) -> void:
 		_seconds_not_yet_simulated = maxf(0.0, _seconds_not_yet_simulated - elapsed_seconds)
 		_sample_instruments_before(boundary_time_seconds)
 		_advance_to(boundary_time_seconds)
-		while _next_motion_time_seconds <= simulation_time_seconds:
-			_next_motion_time_seconds += MOTION_STEP_SECONDS
 		var did_slow_down := boundary_time_seconds == slowdown_time_seconds
 		if did_slow_down:
 			time_scale = NORMAL_TIME_SCALE
@@ -324,9 +318,13 @@ func _process(real_seconds_since_last_frame: float) -> void:
 func _advance_to(time_seconds: float) -> void:
 	var interval_seconds := time_seconds - simulation_time_seconds
 	if _coast_segment != null and interval_seconds > 0.0:
-		_collect_science(_state_on_coast(simulation_time_seconds + interval_seconds * 0.5),
-				simulation_time_seconds, time_seconds)
-		craft_state = _state_on_coast(time_seconds)
+		var end_state := _state_on_coast(time_seconds)
+		# Boundaries are at most one tick (1 s) apart, so the mean of the end
+		# radii is within about a metre of the radius at the midpoint, and
+		# saves a third orbit propagation per tick.
+		var midpoint_radius_meters := 0.5 * (craft_state.radius_meters() + end_state.radius_meters())
+		_collect_science(midpoint_radius_meters, end_state, simulation_time_seconds, time_seconds)
+		craft_state = end_state
 	else:
 		craft_state.time_seconds = time_seconds
 	simulation_time_seconds = time_seconds
@@ -622,10 +620,20 @@ func _sample_instruments() -> void:
 func _sample_instruments_before(boundary_time_seconds: float) -> void:
 	if _telemetry_feed.next_sample_time_seconds() >= boundary_time_seconds:
 		return
+	# Several channels often sample at the same time: propagate once per time.
+	var cached_state: Array = [NAN, null]
+	var state_at := func(time_seconds: float) -> OrbitState:
+		if cached_state[0] != time_seconds:
+			cached_state[0] = time_seconds
+			cached_state[1] = _craft_state_at(time_seconds)
+		return cached_state[1]
 	_telemetry_feed.sample_before(boundary_time_seconds,
-			func(time_seconds: float) -> Dictionary:
-				return _instrument_values(_craft_state_at(time_seconds)),
-			_craft_state_at, vehicle_state, threats, _gravitational_parameter())
+			func(channel: String, time_seconds: float) -> float:
+				# The fuel only changes at boundaries, so it needs no craft state.
+				if channel == TelemetryFrame.CHANNEL_FUEL_KILOGRAMS:
+					return _fuel_kilograms()
+				return _instrument_value(channel, state_at.call(time_seconds)),
+			state_at, vehicle_state, threats, _gravitational_parameter())
 
 
 ## The next sample that _record_sample_diagnostics must see on its own: every
@@ -643,17 +651,38 @@ func _next_diagnosed_sample_time_seconds() -> float:
 
 func _instrument_values(state: OrbitState) -> Dictionary:
 	var flight_path_angle_radians := Kepler.flight_path_angle_radians(state)
-	var attitude_radians := flight_path_angle_radians
-	if _launch_stage != null:
-		attitude_radians = _plan.launch_angle_radians
-	elif state.time_seconds < _pulse_readout_ends_at_seconds:
-		attitude_radians = _pulse_attitude_radians
 	return {
 		TelemetryFrame.CHANNEL_ALTITUDE_METERS: Kepler.altitude_meters(state, _body),
 		TelemetryFrame.CHANNEL_FUEL_KILOGRAMS: _fuel_kilograms(),
-		TelemetryFrame.CHANNEL_ATTITUDE_RADIANS: attitude_radians,
+		TelemetryFrame.CHANNEL_ATTITUDE_RADIANS: _attitude_radians(state, flight_path_angle_radians),
 		TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS: flight_path_angle_radians,
 	}
+
+
+## The true value an instrument channel measures, with the craft in the given
+## state (whose time may lie before the next boundary).
+func _instrument_value(channel: String, state: OrbitState) -> float:
+	match channel:
+		TelemetryFrame.CHANNEL_ALTITUDE_METERS:
+			return Kepler.altitude_meters(state, _body)
+		TelemetryFrame.CHANNEL_FUEL_KILOGRAMS:
+			return _fuel_kilograms()
+		TelemetryFrame.CHANNEL_ATTITUDE_RADIANS:
+			return _attitude_radians(state, NAN)
+		TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS:
+			return Kepler.flight_path_angle_radians(state)
+	return 0.0
+
+
+## The craft's attitude: the launch angle during the launch burn, the pulse
+## attitude while a pulse's readout lasts, and otherwise along the flight path.
+## flight_path_angle_radians may be NAN when not yet computed.
+func _attitude_radians(state: OrbitState, flight_path_angle_radians: float) -> float:
+	if _launch_stage != null:
+		return _plan.launch_angle_radians
+	if state.time_seconds < _pulse_readout_ends_at_seconds:
+		return _pulse_attitude_radians
+	return Kepler.flight_path_angle_radians(state) if is_nan(flight_path_angle_radians) else flight_path_angle_radians
 
 
 func _record_sample_diagnostics() -> void:
@@ -796,8 +825,7 @@ func _configure_science(mission: Dictionary) -> void:
 			_science_rates_by_instrument[part_id] = _science_rates_by_instrument.get(part_id, 0.0) + rate
 
 
-func _collect_science(state: OrbitState, start_seconds: float, end_seconds: float) -> void:
-	var radius_meters := state.radius_meters()
+func _collect_science(radius_meters: float, state: OrbitState, start_seconds: float, end_seconds: float) -> void:
 	if _science_rates_by_instrument.is_empty() or radius_meters < _science_inner_radius_meters or radius_meters > _science_outer_radius_meters:
 		return
 	if threats.is_empty() and _pending_science_intervals.is_empty():

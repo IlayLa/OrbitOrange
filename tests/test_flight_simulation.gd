@@ -26,7 +26,6 @@ func run_tests(report: TestReport) -> void:
 	_check_batched_sampling(report)
 	_check_frame_step_cap(report)
 	_check_fuel_gauge_stops(report)
-	_check_motion_steps(report)
 	_check_terminal_reasons(report)
 	_check_terminal_tick_precedence(report)
 	_check_low_fuel_alarm(report)
@@ -53,7 +52,10 @@ func _check_timing(report: TestReport) -> void:
 		flight.set_time_scale(scale_factor)
 		flight._process(20.0 / scale_factor)
 		flight.advance_simulation(50.0)
-		report.check(steps == [5.0, 5.0, 5.0], "warp preserves the fixed tick cadence")
+		var expected_steps: Array[float] = []
+		for step_index in floori(17.5 / Flight.SIMULATION_STEP_SECONDS):
+			expected_steps.append(Flight.SIMULATION_STEP_SECONDS)
+		report.check(steps == expected_steps, "warp preserves the fixed tick cadence")
 		report.check(results.size() == 1, "a deadline between ticks ends the flight exactly once")
 		if results.size() == 1:
 			report.check(results[0].end_reason == FlightResult.EndReason.MISSION_COMPLETED, "deadline completes a stable flight")
@@ -67,7 +69,7 @@ func _check_timing(report: TestReport) -> void:
 	paused_flight.set_time_scale(1000.0)
 	paused_flight._process(1.0)
 	paused_flight._process(1.0)
-	report.check_close(paused_flight.simulation_time_seconds, 5.0, 0.0, "a synchronous alert stops catch-up")
+	report.check_close(paused_flight.simulation_time_seconds, Flight.SIMULATION_STEP_SECONDS, 0.0, "a synchronous alert stops catch-up")
 	report.check(observed_frames.size() == 2 and observed_frames.back().time_scale == 0.0, "paused frames still publish")
 	paused_flight.free()
 
@@ -123,7 +125,7 @@ func _check_radar(report: TestReport) -> void:
 		flight.add_threat(far_threat)
 		var detections: Array[bool] = []
 		flight.simulation_step.connect(func(_seconds: float) -> void: detections.append(near_threat.is_revealed))
-		flight.advance_simulation(5.0)
+		flight.advance_simulation(Flight.SIMULATION_STEP_SECONDS)
 		var frame := flight._create_telemetry_frame()
 		report.check(detections == [true] and not far_threat.is_revealed, "radar reveals an in-range threat before the step signal")
 		report.check(frame.radar_contacts.size() == 1, "out-of-range contacts are excluded")
@@ -173,7 +175,9 @@ func _check_batched_sampling(report: TestReport) -> void:
 	batched_random.seed = 31
 	var batched := Flight.TelemetryFeed.new(flight.vehicle_state, batched_random)
 	batched.set_interference(0.05, 0.1)
-	batched.sample_before(END_SECONDS, values_at, state_at, flight.vehicle_state, no_threats, mu)
+	batched.sample_before(END_SECONDS,
+			func(channel: String, time_seconds: float) -> float: return values_at.call(time_seconds)[channel],
+			state_at, flight.vehicle_state, no_threats, mu)
 
 	var end_state: OrbitState = state_at.call(END_SECONDS)
 	var one_by_one_frame := TelemetryFrame.new()
@@ -205,19 +209,6 @@ func _check_fuel_gauge_stops(report: TestReport) -> void:
 	flight.vehicle_state.is_working_by_instrument["telemetry_fuel_gauge"] = false
 	report.check(not flight._can_fuel_gauge_warn_early() and flight._next_diagnosed_sample_time_seconds() == INF,
 			"a failed gauge never warns, so its samples no longer stop the flight")
-	flight.free()
-
-
-## The craft moves every MOTION_STEP_SECONDS, while events still tick every
-## SIMULATION_STEP_SECONDS.
-func _check_motion_steps(report: TestReport) -> void:
-	var flight := _start_flight([], 3000.0)
-	var steps: Array[float] = []
-	flight.simulation_step.connect(func(seconds: float) -> void: steps.append(seconds))
-	flight.advance_simulation(7.5)
-	report.check(flight.simulation_time_seconds == 7.0 and steps == [Flight.SIMULATION_STEP_SECONDS],
-			"7.5 s of flight moves the craft to 7 s in 1 s steps and ticks events once (%.2f s, %s)" % [
-				flight.simulation_time_seconds, steps])
 	flight.free()
 
 
@@ -440,10 +431,11 @@ func _has_low_fuel_alarm(flight: Flight) -> bool:
 
 func _check_terminal_tick_precedence(report: TestReport) -> void:
 	for has_impact in [true, false]:
-		var flight := _start_flight([], 5.0 if has_impact else 200.0)
+		# The impact and the deadline fall on the first tick.
+		var flight := _start_flight([], Flight.SIMULATION_STEP_SECONDS if has_impact else 200.0)
 		if has_impact:
 			flight._coast_segment.end_reason = TrajectorySegment.EndReason.IMPACT
-			flight._coast_segment.end_time_seconds = 5.0
+			flight._coast_segment.end_time_seconds = Flight.SIMULATION_STEP_SECONDS
 		var signal_order: Array[String] = []
 		var results: Array[FlightResult] = []
 		flight.simulation_step.connect(func(_seconds: float) -> void:
