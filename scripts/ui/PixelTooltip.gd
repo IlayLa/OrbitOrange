@@ -12,6 +12,17 @@ extends RefCounted
 ## panel is sized from that minimum, so the text would spill out of it.
 
 const WRAP_WIDTH_PIXELS := 180.0
+const HOST_SCRIPT_PATH := "res://scripts/ui/WrappedTooltipHost.gd"
+
+
+## Gives a Control that has no script of its own the wrapped tooltip, by
+## attaching WrappedTooltipHost. A Control with its own script should define
+## _make_custom_tooltip and return make(for_text) itself instead.
+static func attach(control: Control) -> void:
+	if control.get_script() != null:
+		push_error("PixelTooltip.attach: %s already has a script; return PixelTooltip.make from its _make_custom_tooltip" % control.name)
+		return
+	control.set_script(load(HOST_SCRIPT_PATH))
 
 
 ## A Label holding text wrapped to wrap_width_pixels, or null for empty text

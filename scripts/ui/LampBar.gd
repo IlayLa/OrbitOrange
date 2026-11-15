@@ -37,6 +37,11 @@ func _init() -> void:
 	resized.connect(_on_resized)
 
 
+## The hover help as a wrapped block, not the engine's single long line.
+func _make_custom_tooltip(for_text: String) -> Object:
+	return PixelTooltip.make(for_text)
+
+
 ## Shows these lamps (from WarningLamps.lamps_from_summary). A pinned or
 ## focused chip stays so while its sentence is still present.
 func set_lamps(lamps: Array[Dictionary]) -> void:

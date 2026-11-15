@@ -78,7 +78,9 @@ func _ready() -> void:
 	_quest_header = _add_header(quest_column, 2, "QUESTS", "optional")
 	_quest_header.mouse_filter = Control.MOUSE_FILTER_STOP
 	_quest_header.tooltip_text = quest_tooltip
+	PixelTooltip.attach(_quest_header)
 	_penalty_pips = Control.new()
+	PixelTooltip.attach(_penalty_pips)
 	_place(_penalty_pips, quest_column, ScreenLayout.MISSION_SELECT_QUEST_PENALTY_BOX)
 	_penalty_pips.tooltip_text = quest_tooltip
 	_penalty_pips.draw.connect(_draw_penalty_pips)

@@ -189,6 +189,15 @@ func _check_mission_select(report: TestReport) -> void:
 
 b")) == "a||b", "a blank line in hover text is kept")
 	report.check(PixelTooltip.make("  ") == null, "empty hover text shows no tooltip")
+	for quest_help: Control in [screen._quest_header, screen._penalty_pips]:
+		var help_tooltip: Label = quest_help._make_custom_tooltip(quest_help.tooltip_text)
+		_check_tooltip_lines(report, help_tooltip.text, quest_help.tooltip_text, PixelTooltip.WRAP_WIDTH_PIXELS, "the quest rules hover text")
+		help_tooltip.free()
+	var plain_button := Button.new()
+	PixelTooltip.attach(plain_button)
+	report.check(plain_button is Button and plain_button.has_method("_make_custom_tooltip"),
+			"an attached button stays a button and gets the wrapped tooltip")
+	plain_button.free()
 	var tooltip_panel: StyleBoxFlat = screen.get_theme_stylebox("panel", "TooltipPanel") as StyleBoxFlat
 	report.check(tooltip_panel != null and is_equal_approx(tooltip_panel.bg_color.a, 1.0),
 			"the tooltip panel is opaque, so the screen behind never shows through")

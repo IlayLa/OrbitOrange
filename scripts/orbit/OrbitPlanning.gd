@@ -32,6 +32,7 @@ func _ready() -> void:
 	_orbit_view.size = ScreenLayout.ORBIT_PLANNING_VIEW_SCREEN.size
 	add_child(_orbit_view)
 	_overlay = Control.new()
+	PixelTooltip.attach(_overlay)
 	_overlay.position = _orbit_view.position
 	_overlay.size = _orbit_view.size
 	_overlay.mouse_default_cursor_shape = Control.CURSOR_CROSS
