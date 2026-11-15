@@ -67,6 +67,7 @@ var _mission_duration_seconds: float = 0.0
 var _next_step_time_seconds: float = SIMULATION_STEP_SECONDS
 var _seconds_not_yet_simulated: float = 0.0
 var _has_reached_stable_orbit: bool = false
+var _launch_failure_explanation: String = ""
 var _data_generated_megabits: float = 0.0
 var _data_delivered_megabits: float = 0.0
 var _science_inner_radius_meters: float = INF
@@ -106,6 +107,7 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	_pulse_readout_ends_at_seconds = 0.0
 	_temperature_kelvin = AMBIENT_TEMPERATURE_KELVIN
 	_has_reached_stable_orbit = false
+	_launch_failure_explanation = ""
 	threats = []
 	event_log = []
 	simulation_time_seconds = 0.0
@@ -123,6 +125,7 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	is_flying = true
 	flight_started.emit()
 	if resolved.summary.ascent != null and not resolved.summary.ascent.can_lift_off:
+		_launch_failure_explanation = resolved.summary.ascent.lift_off_failure_details
 		end_flight(FlightResult.EndReason.LAUNCH_FAILURE)
 
 
@@ -189,6 +192,18 @@ func end_flight(end_reason: FlightResult.EndReason) -> void:
 		return
 	is_flying = false
 	_seconds_not_yet_simulated = 0.0
+	if end_reason == FlightResult.EndReason.LAUNCH_FAILURE:
+		var explanation := _launch_failure_explanation
+		if explanation.is_empty():
+			explanation = "The spacecraft did not reach a stable orbit before the flight ended."
+		log_event({
+			"time_seconds": simulation_time_seconds,
+			"event_type_id": "launch_failure",
+			"outcome": "Launch failed",
+			"explanation": explanation,
+			"did_player_react": false,
+			"delta_v_spent_meters_per_second": 0.0,
+		})
 	flight_ended.emit(_create_flight_result(end_reason))
 
 
@@ -675,6 +690,10 @@ func _rebuild_automatic_trajectory() -> void:
 		else:
 			_automatic_insertion_pending = false
 			_automatic_insertion_time_seconds = INF
+			_launch_failure_explanation = completion.failure_reason
+			if _automatic_departure_requested_meters_per_second > 0.0:
+				_launch_failure_explanation += " Departure delivered %.1f m/s of %.1f m/s required." % [
+						_automatic_departure_delivered_meters_per_second, _automatic_departure_requested_meters_per_second]
 		if not completion.trajectory.segments.is_empty():
 			completion.trajectory.segments[0].source_stage_id = _last_source_stage_id
 		trajectory = PlanResolver.resolve_after_ascent(_body, _plan, completion, _next_pulse_index).trajectory
@@ -696,6 +715,11 @@ func _fire_automatic_insertion() -> void:
 	_automatic_insertion_time_seconds = INF
 	_record_allocation_readout(allocation, before_state, "Automatic orbit insertion")
 	_rebuild_trajectory()
+	if not _has_reached_stable_orbit:
+		_launch_failure_explanation = (
+				"Automatic insertion did not reach a closed orbit above the atmosphere. "
+				+ "The burn delivered %.1f m/s of %.1f m/s required." % [
+						allocation.outcome.delta_v_delivered_meters_per_second, request_meters_per_second])
 
 
 func _apply_automatic_pulse(pulse: Pulse) -> BurnOutcome:
@@ -727,11 +751,18 @@ func _record_allocation_readout(allocation: BurnAllocation, before_state: OrbitS
 			"thrust_newtons": float(stats.get("thrust_kilonewtons", 0.0)) * 1000.0 * float(vehicle_state.specific_impulse_factor_by_stage.get(stage_id, 1.0)),
 		})
 		start_seconds += outcome.burn_duration_seconds
-		log_event({"time_seconds": simulation_time_seconds, "event_type_id": "automatic_staging",
-			"description": "%s: stage %d delivered %.1f m/s, consumed %.1f kg." % [description, SequentialPropulsion.stage_number(vehicle_state.design, stage_id),
-				outcome.delta_v_delivered_meters_per_second, outcome.propellant_used_kilograms],
-			"stage_id": stage_id, "delta_v_meters_per_second": outcome.delta_v_delivered_meters_per_second,
-			"propellant_used_kilograms": outcome.propellant_used_kilograms})
+		log_event({
+			"time_seconds": simulation_time_seconds,
+			"event_type_id": "automatic_staging",
+			"outcome": "Burn",
+			"explanation": "%s: stage %d delivered %.1f m/s, consumed %.1f kg." % [
+					description, SequentialPropulsion.stage_number(vehicle_state.design, stage_id),
+					outcome.delta_v_delivered_meters_per_second, outcome.propellant_used_kilograms],
+			"did_player_react": false,
+			"delta_v_spent_meters_per_second": outcome.delta_v_delivered_meters_per_second,
+			"stage_id": stage_id,
+			"propellant_used_kilograms": outcome.propellant_used_kilograms,
+		})
 	_pulse_start_time_seconds = simulation_time_seconds
 	_pulse_readout_ends_at_seconds = start_seconds
 	var thrust_direction: OrbitState = OrbitState.create(before_state.position_x_meters, before_state.position_y_meters,
