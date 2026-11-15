@@ -12,7 +12,8 @@ static func resolve(design: RocketDesign, plan: MissionPlan, mission: Dictionary
 	if plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
 		var automatic_body: Dictionary = GameData.body(mission.get("body_id", "earth"))
 		var ascent: AscentResult = AscentPlanner.resolve(design, mission, plan.launch_angle_radians)
-		return resolve_after_ascent(automatic_body, plan, ascent)
+		var mission_end_seconds: float = maxf(0.0, mission.get("duration_seconds", INF))
+		return _resolve_after_ascent(automatic_body, plan, ascent, 0, mission_end_seconds)
 	var body_id: String = mission.get("body_id", "earth")
 	var body: Dictionary = GameData.body(body_id)
 	var launch_loss_meters_per_second: float = mission.get("launch_loss_meters_per_second", 0.0)
@@ -64,6 +65,12 @@ static func create_resolved_burns(plan: MissionPlan, summary: PlanSummary) -> Ar
 ## Projects reachable manual pulses from a copy of a supplied vehicle and orbital state.
 ## Array indices remain the original MissionPlan pulse indices, including blocked entries.
 static func resolve_remaining(body: Dictionary, state: OrbitState, vehicle: VehicleState, plan: MissionPlan, first_pulse_index: int = 0, initial_stage_id: int = 0) -> ResolvedPlan:
+	return _resolve_remaining(body, state, vehicle, plan, first_pulse_index, initial_stage_id, INF)
+
+
+static func _resolve_remaining(
+		body: Dictionary, state: OrbitState, vehicle: VehicleState, plan: MissionPlan,
+		first_pulse_index: int, initial_stage_id: int, mission_end_seconds: float) -> ResolvedPlan:
 	var result := ResolvedPlan.new()
 	var summary: PlanSummary = SequentialPropulsion.base_summary(vehicle.design)
 	var projected_vehicle: VehicleState = vehicle.duplicate_vehicle_state()
@@ -77,7 +84,6 @@ static func resolve_remaining(body: Dictionary, state: OrbitState, vehicle: Vehi
 		summary.delta_v_delivered_by_pulse.append(0.0)
 		summary.is_pulse_affordable.append(false)
 		summary.mass_after_pulse_kilograms.append(RocketModel.total_mass_kilograms(projected_vehicle))
-	var did_stop := false
 	for pulse_index in range(first_pulse_index, plan.pulses.size()):
 		var pulse: Pulse = plan.pulses[pulse_index]
 		var arrival_seconds: float = 0.0 if pulse.fires_immediately else Kepler.seconds_until_polar_angle(
@@ -86,16 +92,13 @@ static func resolve_remaining(body: Dictionary, state: OrbitState, vehicle: Vehi
 				Kepler.seconds_until_impact(gravitational_parameter, current_state, OrbitModel.impact_radius_meters(body)),
 				Kepler.seconds_until_escape(gravitational_parameter, current_state, OrbitModel.escape_radius_meters(body)))
 		if not is_finite(arrival_seconds) or arrival_seconds > terminal_seconds:
-			var no_burns: Array[ResolvedBurn] = []
-			var terminal: Trajectory = OrbitModel.build_trajectory_from_state(body, current_state, no_burns)
-			for segment in terminal.segments:
-				segment.source_stage_id = source_stage_id
-				segment.pulse_index = previous_pulse_index
-				trajectory.segments.append(segment)
-			trajectory.status = Trajectory.Status.UNREACHABLE_PULSE
 			trajectory.first_unreachable_pulse_index = pulse_index
 			summary.warnings.append("Warning: Pulse %d cannot be reached; subsequent pulses do not fire." % (pulse_index + 1))
-			did_stop = true
+			break
+		if current_state.time_seconds + arrival_seconds >= mission_end_seconds:
+			summary.first_pulse_at_or_after_mission_end_index = pulse_index
+			for late_pulse_index in range(pulse_index, plan.pulses.size()):
+				summary.warnings.append("Warning: Pulse %d cannot fire before the mission ends." % (late_pulse_index + 1))
 			break
 		var before_state: OrbitState = Kepler.propagate(gravitational_parameter, current_state, arrival_seconds)
 		var requested_delta_v_meters_per_second: float = pulse.requested_delta_v_meters_per_second()
@@ -126,17 +129,17 @@ static func resolve_remaining(body: Dictionary, state: OrbitState, vehicle: Vehi
 		summary.mass_after_pulse_kilograms[pulse_index] = RocketModel.total_mass_kilograms(projected_vehicle)
 		if not allocation.is_satisfied:
 			summary.warnings.append("Warning: Pulse %d: %s" % [pulse_index + 1, allocation.blocking_reason])
-	if not did_stop:
-		var no_burns: Array[ResolvedBurn] = []
-		var tail: Trajectory = OrbitModel.build_trajectory_from_state(body, current_state, no_burns)
-		for segment in tail.segments:
-			segment.source_stage_id = source_stage_id
-			segment.pulse_index = previous_pulse_index
-			trajectory.segments.append(segment)
-		trajectory.status = tail.status
-	if did_stop:
-		for blocked_index in range(trajectory.first_unreachable_pulse_index, plan.pulses.size()):
-			summary.mass_after_pulse_kilograms[blocked_index] = RocketModel.total_mass_kilograms(projected_vehicle)
+	var no_burns: Array[ResolvedBurn] = []
+	var tail: Trajectory = OrbitModel.build_trajectory_from_state(body, current_state, no_burns)
+	for segment in tail.segments:
+		segment.source_stage_id = source_stage_id
+		segment.pulse_index = previous_pulse_index
+		trajectory.segments.append(segment)
+	trajectory.status = (Trajectory.Status.UNREACHABLE_PULSE if trajectory.first_unreachable_pulse_index >= 0
+			else tail.status)
+	var final_mass_kilograms: float = RocketModel.total_mass_kilograms(projected_vehicle)
+	for blocked_index in range(previous_pulse_index + 1, plan.pulses.size()):
+		summary.mass_after_pulse_kilograms[blocked_index] = final_mass_kilograms
 	SequentialPropulsion.fill_reserve(summary, projected_vehicle)
 	result.summary = summary
 	result.trajectory = trajectory
@@ -145,9 +148,16 @@ static func resolve_remaining(body: Dictionary, state: OrbitState, vehicle: Vehi
 
 ## Combines the read-only ascent prefix with the reachable manual pulse chain.
 static func resolve_after_ascent(body: Dictionary, plan: MissionPlan, ascent: AscentResult, first_pulse_index: int = 0) -> ResolvedPlan:
+	return _resolve_after_ascent(body, plan, ascent, first_pulse_index, INF)
+
+
+static func _resolve_after_ascent(
+		body: Dictionary, plan: MissionPlan, ascent: AscentResult,
+		first_pulse_index: int, mission_end_seconds: float) -> ResolvedPlan:
 	var result: ResolvedPlan
 	if ascent.did_reach_initial_orbit:
-		result = resolve_remaining(body, ascent.orbit_entry_state, ascent.vehicle_state, plan, first_pulse_index, ascent.insertion.last_stage_id())
+		result = _resolve_remaining(body, ascent.orbit_entry_state, ascent.vehicle_state, plan,
+				first_pulse_index, ascent.insertion.last_stage_id(), mission_end_seconds)
 		var prefix: Array[TrajectorySegment] = []
 		for segment in ascent.trajectory.segments:
 			if segment.is_automatic_ascent:

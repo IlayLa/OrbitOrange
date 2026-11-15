@@ -6,7 +6,6 @@ const CHANNELS: Array[String] = [
 	TelemetryFrame.CHANNEL_FUEL_KILOGRAMS,
 	TelemetryFrame.CHANNEL_ATTITUDE_RADIANS,
 	TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS,
-	TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN,
 ]
 const RADAR_CHANNEL := "radar"
 const CHANNELS_WITH_RADAR: Array[String] = [
@@ -14,15 +13,17 @@ const CHANNELS_WITH_RADAR: Array[String] = [
 	TelemetryFrame.CHANNEL_FUEL_KILOGRAMS,
 	TelemetryFrame.CHANNEL_ATTITUDE_RADIANS,
 	TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS,
-	TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN,
 	RADAR_CHANNEL,
 ]
+const RADAR_RANGE_LOSS_PER_NOISE_ADDITION := 2.5
 
 var _random: RandomNumberGenerator
 var _parts_by_channel: Dictionary = {}
 var _next_sample_time_by_channel: Dictionary = {}
 var _held_readings: Dictionary = {}
 var _held_contacts: Dictionary = {}
+var _interference_noise := 0.0
+var _interference_dropout := 0.0
 
 
 func _init(vehicle_state: VehicleState, random: RandomNumberGenerator) -> void:
@@ -49,15 +50,30 @@ func next_sample_time_seconds() -> float:
 	return next_time_seconds
 
 
+func set_interference(noise_fraction_addition: float, dropout_probability_addition: float) -> void:
+	_interference_noise = noise_fraction_addition
+	_interference_dropout = dropout_probability_addition
+
+
+## The latest valid observation, if the selected instrument is still working.
+func valid_reading(channel: String, vehicle_state: VehicleState) -> TelemetryReading:
+	var held: TelemetryReading = _held_readings.get(channel)
+	if held != null and held.is_sensor_working:
+		var part: Dictionary = _parts_by_channel[channel]
+		if vehicle_state.is_working_by_instrument.get(part["id"], false):
+			return held
+	return null
+
+
 ## Samples due channels at the current simulation time.
 func sample(
 		values_by_channel: Dictionary, craft_state: OrbitState, vehicle_state: VehicleState,
-		threats: Array[Threat], gravitational_parameter: float) -> void:
+		threats: Array[Threat], gravitational_parameter: float, simulation_time_seconds: float) -> void:
 	for channel in CHANNELS_WITH_RADAR:
 		if not _parts_by_channel.has(channel):
 			continue
 		var scheduled_time_seconds: float = _next_sample_time_by_channel[channel]
-		if scheduled_time_seconds > craft_state.time_seconds:
+		if scheduled_time_seconds > simulation_time_seconds:
 			continue
 		var part: Dictionary = _parts_by_channel[channel]
 		var stats: Dictionary = part["stats"]
@@ -65,7 +81,8 @@ func sample(
 		_next_sample_time_by_channel[channel] = (
 				scheduled_time_seconds + 1.0 / updates_per_second if updates_per_second > 0.0 else INF)
 		var is_working: bool = vehicle_state.is_working_by_instrument.get(part["id"], false)
-		var has_signal: bool = is_working and _random.randf() >= float(stats.get("dropout_probability", 0.0))
+		var dropout_probability := clampf(float(stats.get("dropout_probability", 0.0)) + _interference_dropout, 0.0, 1.0)
+		var has_signal: bool = is_working and _random.randf() >= dropout_probability
 		if channel == RADAR_CHANNEL:
 			_held_contacts.clear()
 			if has_signal:
@@ -75,8 +92,13 @@ func sample(
 			reading.is_sensor_installed = true
 			reading.is_sensor_working = has_signal
 			reading.sensor_tier = part["tier"]
+			reading.sample_time_seconds = simulation_time_seconds
 			if has_signal:
-				reading.value = _noisy_value(values_by_channel[channel], stats)
+				var value: float = values_by_channel[channel]
+				if channel == TelemetryFrame.CHANNEL_ATTITUDE_RADIANS or channel == TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS:
+					reading.value = _noisy_value(value, stats, PI / 2.0)
+				else:
+					reading.value = _noisy_value(value, stats)
 			_held_readings[channel] = reading
 
 
@@ -88,12 +110,13 @@ func fill_frame(
 		var reading := TelemetryReading.new()
 		if _parts_by_channel.has(channel):
 			var part: Dictionary = _parts_by_channel[channel]
-			var held: TelemetryReading = _held_readings.get(channel)
+			var held := valid_reading(channel, vehicle_state)
 			reading.is_sensor_installed = true
 			reading.sensor_tier = part["tier"]
-			if held != null and vehicle_state.is_working_by_instrument.get(part["id"], false):
+			if held != null:
 				reading.is_sensor_working = held.is_sensor_working
 				reading.value = held.value
+				reading.sample_time_seconds = held.sample_time_seconds
 		frame.readings_by_channel[channel] = reading
 
 	frame.is_radar_installed = _parts_by_channel.has(RADAR_CHANNEL)
@@ -102,7 +125,7 @@ func fill_frame(
 	var radar: Dictionary = _parts_by_channel[RADAR_CHANNEL]
 	if not vehicle_state.is_working_by_instrument.get(radar["id"], false):
 		return
-	var maximum_range_meters: float = float(radar["stats"].get("range_kilometers", 0.0)) * 1000.0
+	var maximum_range_meters := _radar_range_meters(radar["stats"])
 	for threat in threats:
 		if not _held_contacts.has(threat.threat_id) or threat.state == null:
 			continue
@@ -130,7 +153,7 @@ static func nearest_threat_range_meters(
 func _sample_radar(
 		stats: Dictionary, craft_state: OrbitState, threats: Array[Threat],
 		gravitational_parameter: float) -> void:
-	var maximum_range_meters: float = float(stats.get("range_kilometers", 0.0)) * 1000.0
+	var maximum_range_meters := _radar_range_meters(stats)
 	var resolution_level: int = clampi(int(stats.get("resolution_level", 0)), 0, 2)
 	for threat in threats:
 		if threat.state == null:
@@ -152,7 +175,7 @@ func _sample_radar(
 					+ relative_y_meters * relative_velocity_y_meters_per_second) / range_meters
 			closing_speed_meters_per_second = _noisy_value(closing_speed_meters_per_second, stats)
 		_held_contacts[threat.threat_id] = {
-			"bearing_radians": wrapf(_noisy_value(atan2(relative_y_meters, relative_x_meters), stats), -PI, PI),
+			"bearing_radians": wrapf(_noisy_value(atan2(relative_y_meters, relative_x_meters), stats, PI), -PI, PI),
 			"range_meters": maxf(0.0, _noisy_value(range_meters, stats)),
 			"closing_speed_meters_per_second": closing_speed_meters_per_second,
 			"resolution_level": resolution_level,
@@ -161,9 +184,15 @@ func _sample_radar(
 		threat.is_revealed = true
 
 
-func _noisy_value(value: float, stats: Dictionary) -> float:
-	var noise_fraction: float = stats.get("noise_fraction", 0.0)
-	return value * (1.0 + noise_fraction * _random.randf_range(-1.0, 1.0))
+func _radar_range_meters(stats: Dictionary) -> float:
+	var range_retained := maxf(0.0, 1.0 - _interference_noise * RADAR_RANGE_LOSS_PER_NOISE_ADDITION)
+	return float(stats.get("range_kilometers", 0.0)) * 1000.0 * range_retained
+
+
+func _noisy_value(value: float, stats: Dictionary, angular_scale: float = 0.0) -> float:
+	var noise_fraction: float = float(stats.get("noise_fraction", 0.0)) + _interference_noise
+	var scale := angular_scale if angular_scale > 0.0 else value
+	return value + scale * noise_fraction * _random.randf_range(-1.0, 1.0)
 
 
 static func _threat_state_at(threat: Threat, time_seconds: float, gravitational_parameter: float) -> OrbitState:

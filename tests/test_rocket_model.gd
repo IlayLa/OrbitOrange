@@ -22,7 +22,7 @@ const REQUIRED_PART_KEYS: Array[String] = [
 const TELEMETRY_CHANNELS: Array[String] = [
 	TelemetryFrame.CHANNEL_ALTITUDE_METERS, TelemetryFrame.CHANNEL_FUEL_KILOGRAMS,
 	TelemetryFrame.CHANNEL_ATTITUDE_RADIANS, TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS,
-	TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN, "radar", "computer",
+	"radar", "computer",
 ]
 const STANDARD_GRAVITY := RocketModel.STANDARD_GRAVITY_METERS_PER_SECOND_SQUARED
 

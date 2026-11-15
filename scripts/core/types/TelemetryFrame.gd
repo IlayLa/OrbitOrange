@@ -10,7 +10,6 @@ const CHANNEL_FUEL_KILOGRAMS := "fuel_kilograms"
 const CHANNEL_ATTITUDE_RADIANS := "attitude_radians"
 const CHANNEL_FLIGHT_PATH_ANGLE_RADIANS := "flight_path_angle_radians"
 const CHANNEL_ACCELERATION_METERS_PER_SECOND_SQUARED := "acceleration_meters_per_second_squared"
-const CHANNEL_TEMPERATURE_KELVIN := "temperature_kelvin"
 
 var simulation_time_seconds: float = 0.0
 ## 0 means paused. Otherwise simulated seconds per real second.
@@ -26,7 +25,8 @@ var is_radar_installed: bool = false
 ## Short codes of the warnings that are active, for example "LOW_FUEL".
 var active_alarms: Array[String] = []
 var delta_v_remaining_meters_per_second: float = 0.0
-## Seconds until the next planned pulse. INF when none is left.
+## Seconds until the next scheduled pulse, including automatic orbit insertion.
+## INF when none is scheduled.
 var seconds_until_next_pulse: float = INF
 var data_generated_megabits: float = 0.0
 var data_delivered_megabits: float = 0.0
