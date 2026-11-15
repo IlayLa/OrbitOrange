@@ -175,6 +175,20 @@ func _check_mission_select(report: TestReport) -> void:
 	for card in screen._quest_contents.get_children():
 		if card is ChoiceCard:
 			report.check(not card.tooltip_text.is_empty(), "a quest card shows its full text on hover")
+			var tooltip: Label = card._make_custom_tooltip(card.tooltip_text)
+			var tooltip_width: float = maxf(PixelTooltip.MAXIMUM_WIDTH_PIXELS, card._card_width_pixels)
+			var widest_line := 0.0
+			for line in tooltip.text.split("\n"):
+				widest_line = maxf(widest_line, PixelGlyphs.text_width(line))
+			report.check(widest_line <= tooltip_width,
+					"a quest card's hover text wraps inside its box (widest line %.0f of %.0f px)" % [widest_line, tooltip_width])
+			report.check(tooltip.text.replace("\n", " ").replace("  ", " ") == card.tooltip_text.replace("\n", " "),
+					"a quest card's hover text is wrapped, never cut")
+			tooltip.free()
+	report.check(PixelTooltip.make("  ") == null, "empty hover text shows no tooltip")
+	var tooltip_panel: StyleBoxFlat = screen.get_theme_stylebox("panel", "TooltipPanel") as StyleBoxFlat
+	report.check(tooltip_panel != null and is_equal_approx(tooltip_panel.bg_color.a, 1.0),
+			"the tooltip panel is opaque, so the screen behind never shows through")
 	screen._on_quest_toggled(true, "keep_reserve_placeholder")
 	report.check(screen._budget_label.text.contains("$35M"), "the footer adds the grant live (%s)" % screen._budget_label.text)
 	var widest_budget: String = screen.budget_text({"id": "rich"}, 100.0, 15.0)
