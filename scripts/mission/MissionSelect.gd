@@ -101,6 +101,7 @@ func _ready() -> void:
 	_accept_button = Button.new()
 	_accept_button.text = "Accept mission"
 	_accept_button.tooltip_text = "Needs a mission and one science objective."
+	PixelTooltip.attach(_accept_button)
 	_accept_button.position = ACCEPT_BUTTON_SCREEN.position
 	_accept_button.size = ACCEPT_BUTTON_SCREEN.size
 	_accept_button.disabled = true

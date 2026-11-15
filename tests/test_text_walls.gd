@@ -178,8 +178,14 @@ func _check_mission_select(report: TestReport) -> void:
 			var tooltip: Label = card._make_custom_tooltip(card.tooltip_text)
 			if tooltip == null:
 				continue
-			var tooltip_width: float = maxf(PixelTooltip.WRAP_WIDTH_PIXELS, card._card_width_pixels - card.get_theme_stylebox("panel", "TooltipPanel").get_minimum_size().x)
-			_check_tooltip_lines(report, tooltip.text, card.tooltip_text, tooltip_width, "a quest card's hover text")
+			var tooltip_size: int = tooltip.get_theme_font_size("font_size")
+			var panel_width: float = card.get_theme_stylebox("panel", "TooltipPanel").get_minimum_size().x
+			var widest_card_line := 0.0
+			for line in tooltip.text.split("\n"):
+				widest_card_line = maxf(widest_card_line, PixelGlyphs.text_width(line, tooltip_size))
+			report.check(widest_card_line + panel_width <= card._card_width_pixels,
+					"a quest card's tooltip is no wider than the card (%.0f of %.0f px)" % [widest_card_line + panel_width, card._card_width_pixels])
+			_check_tooltip_lines(report, tooltip.text, card.tooltip_text, card._card_width_pixels, "a quest card's hover text", tooltip_size)
 			tooltip.free()
 	var long_word_text := "fuel: " + "LOX/CH4/".repeat(12) + " end"
 	_check_tooltip_lines(report, "\n".join(PixelTooltip.wrapped_lines(long_word_text)), long_word_text,
@@ -357,10 +363,11 @@ func _check_lamp_focus_and_overflow(report: TestReport) -> void:
 
 ## Checks wrapped tooltip text: every line fits the width, and the words read
 ## the same as the source text (wrapped, never cut).
-func _check_tooltip_lines(report: TestReport, wrapped_text: String, source_text: String, width_pixels: float, what: String) -> void:
+func _check_tooltip_lines(report: TestReport, wrapped_text: String, source_text: String, width_pixels: float, what: String,
+		font_size_pixels: int = PixelGlyphs.TEXT_SIZE_PIXELS) -> void:
 	var widest_line := 0.0
 	for line in wrapped_text.split("\n"):
-		widest_line = maxf(widest_line, PixelGlyphs.text_width(line))
+		widest_line = maxf(widest_line, PixelGlyphs.text_width(line, font_size_pixels))
 	report.check(widest_line <= width_pixels, "%s wraps inside its box (widest line %.0f of %.0f px)" % [what, widest_line, width_pixels])
 	report.check("".join(wrapped_text.split("\n")).replace(" ", "") == "".join(source_text.split("\n")).replace(" ", ""),
 			"%s is wrapped, never cut" % what)

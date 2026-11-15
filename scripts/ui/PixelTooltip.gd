@@ -13,6 +13,9 @@ extends RefCounted
 ## panel is sized from that minimum, so the text would spill out of it.
 
 const WRAP_WIDTH_PIXELS := 180.0
+## Narrowest wrap allowed when a box width is given, so a tiny box still
+## leaves room for a few characters a line.
+const MINIMUM_WRAP_WIDTH_PIXELS := 40.0
 const TOOLTIP_LABEL_TYPE := "TooltipLabel"
 const TOOLTIP_PANEL_TYPE := "TooltipPanel"
 const HOST_SCRIPT := preload("res://scripts/ui/WrappedTooltipHost.gd")
@@ -31,14 +34,18 @@ static func attach(control: Control) -> void:
 ## The tooltip for a hovered control, in the TooltipLabel font size of the
 ## control's theme (the popup opens under the control, so a screen theme
 ## such as PlanningStyle applies). box_width_pixels, when given, is the
-## outer width the tooltip may match, panel padding included (a card's width).
+## outer width of the tooltip, panel padding included: a card passes its own
+## width so the tooltip is exactly as wide as the card at most.
+## (The pixel font has a fixed size of 11 and scales by whole steps, so the
+## 8 and 10 sizes the themes ask for draw the same; the size is still passed
+## through so that measuring and drawing can never disagree.)
 static func for_control(control: Control, text: String, box_width_pixels: float = 0.0) -> Label:
 	var font_size: int = control.get_theme_font_size("font_size", TOOLTIP_LABEL_TYPE)
 	var wrap_width_pixels := WRAP_WIDTH_PIXELS
 	if box_width_pixels > 0.0:
 		var panel: StyleBox = control.get_theme_stylebox("panel", TOOLTIP_PANEL_TYPE)
 		var panel_width: float = panel.get_minimum_size().x if panel != null else 0.0
-		wrap_width_pixels = maxf(WRAP_WIDTH_PIXELS, box_width_pixels - panel_width)
+		wrap_width_pixels = maxf(MINIMUM_WRAP_WIDTH_PIXELS, box_width_pixels - panel_width)
 	return make(text, wrap_width_pixels, font_size)
 
 
