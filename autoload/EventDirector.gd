@@ -352,15 +352,17 @@ func _process_collisions() -> bool:
 		var threat: Threat = impact["threat"]
 		_remove_contact(encounter, threat)
 		if encounter["event_type_id"] != "debris_shower":
+			_flight.settle_science_before_impact(impact["time_seconds"], true)
 			_set_encounter_outcome(encounter, "Collision", "The spacecraft collided with the approaching object.")
 			_flight.end_flight(FlightResult.EndReason.COLLISION)
 			return true
 		encounter["hit_count"] += 1
 		_debris_hits_sustained += 1
+		var hull_destroyed := _debris_hits_sustained >= DEBRIS_HITS_TO_DESTROY
+		_flight.settle_science_before_impact(impact["time_seconds"], hull_destroyed)
 		var instrument_name := _faults.damage_instrument(_flight.vehicle_state, _random)
 		if not instrument_name.is_empty():
 			encounter["damaged_instruments"].append(instrument_name)
-		var hull_destroyed := _debris_hits_sustained >= DEBRIS_HITS_TO_DESTROY
 		_report_debris_damage(encounter, hull_destroyed)
 		if hull_destroyed:
 			_flight.end_flight(FlightResult.EndReason.COLLISION)

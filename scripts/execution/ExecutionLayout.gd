@@ -17,7 +17,6 @@ const LAMP_REGION_IN_MOCKUP := Rect2(55, 3, 11, 10)
 const ALARM_LAMP_RECT := Rect2(275, 15, 55, 50)
 const CLOCK_SCREEN := Rect2(40, 75, 180, 45)
 const OBJECTIVES_SCREEN := Rect2(40, 135, 180, 240)
-const TEMPERATURE_SCREEN := Rect2(300, 95, 105, 40)
 const RADAR_SCREEN := Rect2(325, 145, 170, 135)
 const ANGLES_SCREEN := Rect2(515, 110, 105, 80)
 const ALTITUDE_SCREEN := Rect2(290, 290, 105, 40)
@@ -25,6 +24,9 @@ const DELTA_V_SCREEN := Rect2(290, 340, 105, 40)
 const ACCELERATION_SCREEN := Rect2(450, 295, 115, 90)
 ## Width of the grey frame drawn around every mock-up panel.
 const PANEL_FRAME_PIXELS := 5
+
+## Flat bezel over the unused gauge cutout baked into the mock-up.
+const BEZEL_FILL_RECT := Rect2(300, 95, 105, 40)
 
 ## --- Radar scope inside RADAR_SCREEN ------------------------------------------
 ## Centre of the green rings and the radius of the outermost ring, relative to
@@ -41,6 +43,7 @@ const SELF_DESTRUCT_BUTTON_RECT := Rect2(574, 348, 60, 42)
 const SELF_DESTRUCT_MESSAGE_RECT := Rect2(330, 292, 240, 48)
 
 ## --- Colours taken from the execution mock-up ---------------------------------
+const COLOR_BEZEL := Color("928667")
 const COLOR_SCREEN_DARK := Color("3d3d3d")
 const COLOR_SCREEN_LIGHT := Color("e1e1e1")
 const COLOR_RADAR_RING_GREEN := Color("5cc616")

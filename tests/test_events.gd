@@ -11,6 +11,7 @@ const RADAR_STANDARD := "telemetry_radar_standard"
 const RADAR_ADVANCED := "telemetry_radar_advanced"
 const ALTIMETER := "telemetry_altimeter_basic"
 const CAMERA := "science_camera_basic"
+const HIGH_RESOLUTION_CAMERA := "science_camera_high_resolution"
 const COMPUTER_BASIC := "telemetry_computer_basic"
 const COMPUTER_HARDENED := "telemetry_computer_hardened"
 const CONJUNCTION := "satellite_conjunction"
@@ -31,6 +32,7 @@ func run_tests(report: TestReport) -> void:
 	_check_warning_tradeoffs(report)
 	_check_emergency_burn(report)
 	_check_elapsed_collision_and_damage(report)
+	_check_science_after_impact(report)
 	_check_cumulative_hull_damage(report)
 	_check_collision_before_planned_burn(report)
 	_check_terminal_precedence(report)
@@ -353,6 +355,67 @@ func _check_elapsed_collision_and_damage(report: TestReport) -> void:
 			and flight.event_log.size() == 1 and flight.event_log[0]["outcome"] == "Damage"
 			and flight.threats.is_empty(), "one colliding debris fragment removes exactly one instrument and aggregates the row")
 	_free_fixture(fixture)
+
+
+func _check_science_after_impact(report: TestReport) -> void:
+	var saved_mission: Dictionary = GameState.mission
+	var saved_science_id: String = GameState.science_mission_id
+	GameState.mission = GameData.mission(REFERENCE_MISSION_ID)
+	GameState.science_mission_id = "earth_imaging"
+	var body: Dictionary = GameData.body("earth")
+	const SECONDS_UNTIL_IMPACT := 17.5
+	var basic_rate: float = GameData.part(CAMERA)["stats"]["data_rate_megabits_per_second"]
+	var high_resolution_rate: float = GameData.part(HIGH_RESOLUTION_CAMERA)["stats"]["data_rate_megabits_per_second"]
+	var combined_rate := basic_rate + high_resolution_rate
+	for event_type_id: String in [DEBRIS, CONJUNCTION]:
+		var fixture := _orbital_flight([HIGH_RESOLUTION_CAMERA])
+		var flight: Flight = fixture["flight"]
+		var director: Director = fixture["director"]
+		# The two cameras are the only eligible targets. Use the same science
+		# orbit for both the payload hit and the fatal collision.
+		flight.vehicle_state.is_working_by_instrument[ALTIMETER] = false
+		var now_seconds := flight.simulation_time_seconds
+		flight.craft_state = _circular_state(body)
+		flight.craft_state.time_seconds = now_seconds
+		flight._rebuild_trajectory()
+		var prior_data := flight._create_telemetry_frame().data_delivered_megabits
+		var target_seconds := now_seconds + SECONDS_UNTIL_IMPACT
+		var threat := _crossing_threat(body, flight.trajectory, now_seconds, target_seconds, 0.0, 25.0, event_type_id)
+		var results: Array[FlightResult] = []
+		flight.flight_ended.connect(func(result: FlightResult) -> void: results.append(result))
+		director.force_encounter(event_type_id, [threat], target_seconds)
+		flight.advance_simulation(10.0)
+		director.acknowledge_alert()
+		flight.advance_simulation(8.0)
+		report.check_close(flight._create_telemetry_frame().data_delivered_megabits,
+				prior_data + combined_rate * 15.0, 1.0e-5, "unsettled impact-tick data is not shown as delivered")
+		flight.advance_simulation(2.0)
+		var data_at_impact := prior_data + combined_rate * SECONDS_UNTIL_IMPACT
+		if event_type_id == CONJUNCTION:
+			report.check(results.size() == 1, "the fatal collision records one science result")
+			if results.size() == 1:
+				report.check_close(results[0].data_delivered_megabits, data_at_impact, 1.0e-5,
+						"a destroyed spacecraft delivers data only through the impact time")
+		else:
+			var survivor_rate := basic_rate if flight.vehicle_state.is_working_by_instrument[CAMERA] else high_resolution_rate
+			report.check(flight.vehicle_state.working_instrument_count() == 1,
+					"debris disables one camera and leaves the other working")
+			var frame := flight._create_telemetry_frame()
+			var expected_data := data_at_impact + survivor_rate * (20.0 - SECONDS_UNTIL_IMPACT)
+			report.check_close(frame.data_delivered_megabits, expected_data, 1.0e-5,
+					"only the surviving camera transmits during the rest of the impact tick")
+			report.check_close(frame.data_generated_megabits, expected_data, 1.0e-5,
+					"the destroyed camera stops generating data at impact")
+			_strike_with_debris(flight, director, body)
+			var data_after_second_hit := flight._create_telemetry_frame().data_delivered_megabits
+			report.check_close(data_after_second_hit, expected_data + survivor_rate * SECONDS_UNTIL_IMPACT, 1.0e-5,
+					"the last working camera transmits only until its hit")
+			flight.advance_simulation(10.0)
+			report.check_close(flight._create_telemetry_frame().data_delivered_megabits, data_after_second_hit, 0.0,
+					"science delivery stays frozen after all cameras are disabled")
+		_free_fixture(fixture)
+	GameState.mission = saved_mission
+	GameState.science_mission_id = saved_science_id
 
 
 func _check_cumulative_hull_damage(report: TestReport) -> void:

@@ -71,6 +71,7 @@ var _data_delivered_megabits: float = 0.0
 var _science_inner_radius_meters: float = INF
 var _science_outer_radius_meters: float = -INF
 var _science_rates_by_instrument: Dictionary = {}
+var _pending_science_intervals: Array[Dictionary] = []
 var _random := RandomNumberGenerator.new()
 var _telemetry_feed: TelemetryFeed
 
@@ -183,6 +184,13 @@ func set_telemetry_interference(noise_fraction_addition: float, dropout_probabil
 		_telemetry_feed.set_interference(noise_fraction_addition, dropout_probability_addition)
 
 
+## Credits data up to a confirmed hit, before the director disables instruments.
+func settle_science_before_impact(impact_seconds: float, destroys_craft: bool) -> void:
+	_settle_science_through(impact_seconds)
+	if destroys_craft:
+		_pending_science_intervals.clear()
+
+
 ## Pauses the flight and emits the message for the control room.
 func raise_alert(alarm_code: String, message: String) -> void:
 	if _is_finalizing_physical_end:
@@ -197,6 +205,7 @@ func end_flight(end_reason: FlightResult.EndReason) -> void:
 		return
 	is_flying = false
 	_seconds_not_yet_simulated = 0.0
+	_settle_science_through(simulation_time_seconds)
 	if end_reason == FlightResult.EndReason.LAUNCH_FAILURE:
 		var explanation := _launch_failure_explanation
 		if explanation.is_empty():
@@ -224,7 +233,7 @@ func advance_simulation(seconds: float) -> void:
 	_seconds_not_yet_simulated += seconds
 	var flight_number := _flight_number
 	while is_flying and time_scale > 0.0 and _flight_number == flight_number:
-		var pulse_time_seconds: float = minf(_next_planned_pulse_time_seconds(), _automatic_insertion_time_seconds)
+		var pulse_time_seconds := _next_scheduled_pulse_time_seconds()
 		var slowdown_time_seconds := INF
 		if time_scale > 1.0 and is_finite(pulse_time_seconds):
 			slowdown_time_seconds = maxf(simulation_time_seconds, pulse_time_seconds - PULSE_SLOWDOWN_LEAD_SECONDS)
@@ -261,6 +270,7 @@ func advance_simulation(seconds: float) -> void:
 			simulation_step.emit(SIMULATION_STEP_SECONDS)
 			if not is_flying or _flight_number != flight_number:
 				return
+			_settle_science_through(simulation_time_seconds)
 			_is_finalizing_physical_end = false
 			if terminal_reason < 0:
 				terminal_reason = _physical_end_reason()
@@ -288,7 +298,8 @@ func _process(real_seconds_since_last_frame: float) -> void:
 func _advance_to(time_seconds: float) -> void:
 	var interval_seconds := time_seconds - simulation_time_seconds
 	if _coast_segment != null and interval_seconds > 0.0:
-		_collect_science(_state_on_coast(simulation_time_seconds + interval_seconds * 0.5), interval_seconds)
+		_collect_science(_state_on_coast(simulation_time_seconds + interval_seconds * 0.5),
+				simulation_time_seconds, time_seconds)
 		craft_state = _state_on_coast(time_seconds)
 	else:
 		craft_state.time_seconds = time_seconds
@@ -383,6 +394,10 @@ func _rebuild_trajectory() -> void:
 	trajectory = OrbitModel.build_trajectory_from_state(_body, craft_state, remaining_burns)
 	_coast_segment = null if trajectory.segments.is_empty() else trajectory.segments[0]
 	_has_reached_stable_orbit = _has_reached_stable_orbit or _is_stable_orbit(_final_elements())
+
+
+func _next_scheduled_pulse_time_seconds() -> float:
+	return minf(_next_planned_pulse_time_seconds(), _automatic_insertion_time_seconds)
 
 
 func _next_planned_pulse_time_seconds() -> float:
@@ -653,7 +668,7 @@ func _create_telemetry_frame() -> TelemetryFrame:
 	frame.simulation_time_seconds = simulation_time_seconds
 	frame.time_scale = time_scale
 	frame.delta_v_remaining_meters_per_second = _remaining_delta_v_meters_per_second()
-	frame.seconds_until_next_pulse = _next_planned_pulse_time_seconds() - simulation_time_seconds
+	frame.seconds_until_next_pulse = _next_scheduled_pulse_time_seconds() - simulation_time_seconds
 	frame.data_generated_megabits = _data_generated_megabits
 	frame.data_delivered_megabits = _data_delivered_megabits
 	_telemetry_feed.fill_frame(frame, craft_state, vehicle_state, threats, _gravitational_parameter())
@@ -675,6 +690,7 @@ func _configure_science(mission: Dictionary) -> void:
 	_science_inner_radius_meters = INF
 	_science_outer_radius_meters = -INF
 	_science_rates_by_instrument.clear()
+	_pending_science_intervals.clear()
 	_data_generated_megabits = 0.0
 	_data_delivered_megabits = 0.0
 	var chosen_science_id := GameState.science_mission_id
@@ -698,15 +714,42 @@ func _configure_science(mission: Dictionary) -> void:
 			_science_rates_by_instrument[part_id] = _science_rates_by_instrument.get(part_id, 0.0) + rate
 
 
-func _collect_science(state: OrbitState, interval_seconds: float) -> void:
+func _collect_science(state: OrbitState, start_seconds: float, end_seconds: float) -> void:
 	var radius_meters := state.radius_meters()
-	if radius_meters < _science_inner_radius_meters or radius_meters > _science_outer_radius_meters:
+	if _science_rates_by_instrument.is_empty() or radius_meters < _science_inner_radius_meters or radius_meters > _science_outer_radius_meters:
 		return
+	if threats.is_empty() and _pending_science_intervals.is_empty():
+		_credit_science(state, end_seconds - start_seconds)
+	else:
+		# Collision checks can find a hit earlier in this tick.
+		_pending_science_intervals.append({
+			"state": state, "start_seconds": start_seconds, "end_seconds": end_seconds,
+		})
+
+
+func _settle_science_through(time_seconds: float) -> void:
+	while not _pending_science_intervals.is_empty():
+		var interval: Dictionary = _pending_science_intervals.front()
+		var start_seconds: float = interval["start_seconds"]
+		if start_seconds >= time_seconds:
+			return
+		var end_seconds: float = interval["end_seconds"]
+		var credit_end_seconds := minf(time_seconds, end_seconds)
+		_credit_science(interval["state"], credit_end_seconds - start_seconds)
+		if credit_end_seconds < end_seconds:
+			interval["start_seconds"] = credit_end_seconds
+			return
+		_pending_science_intervals.pop_front()
+
+
+func _credit_science(state: OrbitState, interval_seconds: float) -> void:
 	var data_rate_megabits_per_second := 0.0
 	for part_id in _science_rates_by_instrument:
 		if vehicle_state.is_working_by_instrument.get(part_id, false):
 			data_rate_megabits_per_second += _science_rates_by_instrument[part_id]
 	var generated_megabits := data_rate_megabits_per_second * interval_seconds
+	if generated_megabits <= 0.0:
+		return
 	_data_generated_megabits += generated_megabits
 	_data_delivered_megabits += DataLink.deliver(generated_megabits, state, interval_seconds)
 

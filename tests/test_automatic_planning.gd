@@ -17,6 +17,7 @@ func run_tests(report: TestReport) -> void:
 	_check_reassignment_and_reachability(report)
 	_check_mission_deadline(report)
 	_check_flight_agreement(report)
+	_check_insertion_countdown(report)
 	_check_automatic_completion(report)
 	_check_lift_off_failure_log(report)
 	for part_id in [LIQUID_ID, TANK_ID, SOLID_ID, BOOSTER_ID, SMALL_TANK_ID]:
@@ -254,6 +255,31 @@ func _register_parts() -> void:
 func _part(part_id: String, category: String, dry_mass_kilograms: float, stats: Dictionary) -> Dictionary:
 	return {"id": part_id, "name": part_id, "category": category, "dry_mass_kilograms": dry_mass_kilograms,
 		"cost_million_usd": 0.0, "stats": stats, "source": "Synthetic T05 test fixture"}
+
+
+func _check_insertion_countdown(report: TestReport) -> void:
+	var mission: Dictionary = GameData.all_missions()[0]
+	var design := _reference_design()
+	var plan := _reference_plan()
+	var ascent: AscentResult = PlanResolver.resolve(design, plan, mission).summary.ascent
+	var insertion_seconds := ascent.orbit_entry_state.time_seconds
+	var coast_sample_seconds := (ascent.departure_state.time_seconds + insertion_seconds) * 0.5
+	var flight := Flight.new()
+	flight.start_flight(design, plan, mission, 1)
+	flight.advance_simulation(coast_sample_seconds)
+	report.check_close(flight._create_telemetry_frame().seconds_until_next_pulse,
+			insertion_seconds - flight.simulation_time_seconds, 0.00001,
+			"the coast countdown shows the automatic insertion time")
+	flight.set_time_scale(1000.0)
+	flight.advance_simulation(insertion_seconds)
+	report.check(flight.time_scale == 1.0, "warp slows before automatic insertion")
+	report.check_close(flight._create_telemetry_frame().seconds_until_next_pulse,
+			Flight.PULSE_SLOWDOWN_LEAD_SECONDS, 0.00001,
+			"the insertion clock and the warp slowdown agree")
+	flight.advance_simulation(Flight.PULSE_SLOWDOWN_LEAD_SECONDS)
+	report.check(flight._create_telemetry_frame().seconds_until_next_pulse == INF,
+			"after insertion there is no countdown when the plan has no more pulses")
+	flight.free()
 
 
 func _check_automatic_completion(report: TestReport) -> void:

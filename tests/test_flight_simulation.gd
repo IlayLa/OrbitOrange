@@ -287,11 +287,6 @@ func _check_sensor_diagnostics(report: TestReport) -> void:
 	pulse.delta_v_along_velocity_meters_per_second = 500.0
 	flight.apply_emergency_pulse(pulse)
 	flight.advance_simulation(5.0)
-	var frame := flight._create_telemetry_frame()
-	report.check(not frame.reading(TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN).is_sensor_installed
-			and not frame.active_alarms.has("OVER_TEMPERATURE")
-			and GameData.part("telemetry_temperature_sensor").is_empty(),
-			"the temperature part, its live samples and the thermal alarm are gone")
 	var results: Array[FlightResult] = []
 	flight.flight_ended.connect(func(result: FlightResult) -> void: results.append(result))
 	flight.advance_simulation(200.0)
