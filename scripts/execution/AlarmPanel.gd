@@ -149,10 +149,10 @@ func _create_alert_box() -> void:
 	contents.add_child(dismiss_button)
 
 
-## Copies the theme's button styles with small margins so the button fits.
+## Copies the project theme's button skin with small margins so the button fits.
 static func _set_tight_margins(button: Button) -> void:
 	for style_name in ["normal", "hover", "pressed"]:
-		var theme_style: StyleBox = MissionPresentation.create_theme().get_stylebox(style_name, "Button")
+		var theme_style: StyleBox = button.get_theme_stylebox(style_name, "Button")
 		var tight_style: StyleBox = theme_style.duplicate()
 		tight_style.content_margin_left = 6
 		tight_style.content_margin_right = 6
