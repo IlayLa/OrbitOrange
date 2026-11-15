@@ -26,15 +26,7 @@ var _has_hover_point: bool = false
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	theme = PlanningStyle.create_theme()
-	var background := TextureRect.new()
-	background.name = "AmitOrbitBackground"
-	background.texture = load(ScreenLayout.ORBIT_PLANNING_BACKGROUND_PATH)
-	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	background.size = ScreenLayout.SCREEN_SIZE
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(background)
+	ScreenLayout.add_mockup_background(self, ScreenLayout.ORBIT_PLANNING_BACKGROUND_PATH, "AmitOrbitBackground")
 	_orbit_view = OrbitView.new()
 	_orbit_view.position = ScreenLayout.ORBIT_PLANNING_VIEW_SCREEN.position
 	_orbit_view.size = ScreenLayout.ORBIT_PLANNING_VIEW_SCREEN.size

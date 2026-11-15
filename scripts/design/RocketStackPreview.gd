@@ -34,8 +34,12 @@ const MARGIN_PIXELS := 6.0
 const STAGE_TAG_WIDTH_PIXELS := 18.0
 const LABEL_FONT_SIZE_PIXELS := 8
 const EMPTY_FONT_SIZE_PIXELS := 9
-## Blocks lower than this are too small for an icon.
-const SMALLEST_BLOCK_WITH_ICON_PIXELS := 12.0
+## The part icons are 40 x 40 (tools/build_part_icons.gd), drawn at exactly
+## half size like on the part cards, so every icon has the same pixel size.
+const ICON_SIZE_PIXELS := 20.0
+## A block (or run of payload blocks) shows its icon when the drawn art,
+## without the icon's transparent margin, fits inside it with this much room.
+const ICON_ROOM_PIXELS := 1.0
 ## Room to the right of the stack for the lamps, before the part names.
 const LAMP_COLUMN_WIDTH_PIXELS := 11.0
 const BUBBLE_WIDTH_PIXELS := 160.0
@@ -62,6 +66,15 @@ var _design: RocketDesign
 ##   "payload_index" (int), "part_id" (String)
 var _blocks: Array[Dictionary] = []
 var _nose_cone_points: PackedVector2Array = PackedVector2Array()
+## Runs of identical payload parts, drawn with one icon and one label
+## ("Basic altimeter ×9"). One Dictionary each: "rect" (Rect2, all blocks of
+## the run), "part_id", "count", "block_indices" (Array of int into _blocks).
+var _payload_groups: Array[Dictionary] = []
+## Icon path -> {"texture": Texture2D, "art_size": Vector2, the drawn size
+## of the icon's opaque pixels}, or {} when there is no icon. The textures
+## must outlive _draw(): the canvas only keeps the texture's RID, and a
+## texture freed after _draw() draws as a white square.
+static var _icon_cache: Dictionary = {}
 var _hovered_block_index: int = -1
 ## Lamps of the plan, from WarningLamps.lamps_from_summary.
 var _lamps: Array[Dictionary] = []
@@ -116,6 +129,7 @@ static func is_solid_engine(engine_part_id: String) -> bool:
 
 func _rebuild_blocks() -> void:
 	_blocks.clear()
+	_payload_groups.clear()
 	_nose_cone_points = PackedVector2Array()
 	_hovered_block_index = -1
 	if _design == null or (_design.stages.is_empty() and _design.payload_part_ids.is_empty()):
@@ -166,8 +180,18 @@ func _rebuild_blocks() -> void:
 	for payload_index in _design.payload_part_ids.size():
 		var payload_height_pixels: float = PAYLOAD_HEIGHT_UNITS * unit_pixels
 		next_bottom_pixels -= payload_height_pixels
-		_add_block(BlockKind.PAYLOAD, Rect2(payload_left_pixels, next_bottom_pixels, payload_width_pixels, payload_height_pixels),
-				0, payload_index, _design.payload_part_ids[payload_index])
+		var payload_rect := Rect2(payload_left_pixels, next_bottom_pixels, payload_width_pixels, payload_height_pixels)
+		var payload_part_id: String = _design.payload_part_ids[payload_index]
+		_add_block(BlockKind.PAYLOAD, payload_rect, 0, payload_index, payload_part_id)
+		if not _payload_groups.is_empty() and _payload_groups[-1]["part_id"] == payload_part_id:
+			var group: Dictionary = _payload_groups[-1]
+			group["rect"] = (group["rect"] as Rect2).merge(payload_rect)
+			group["count"] += 1
+			group["block_indices"].append(_blocks.size() - 1)
+		else:
+			_payload_groups.append({
+				"rect": payload_rect, "part_id": payload_part_id, "count": 1, "block_indices": [_blocks.size() - 1],
+			})
 
 	var nose_cone_width_pixels: float = stack_width_pixels if _design.payload_part_ids.is_empty() else payload_width_pixels
 	var nose_cone_left_pixels: float = stack_left_pixels + (stack_width_pixels - nose_cone_width_pixels) * 0.5
@@ -272,6 +296,8 @@ func _add_block(block_kind: BlockKind, block_rect: Rect2, stage_id: int, payload
 func _draw() -> void:
 	if _blocks.is_empty():
 		if is_interactive:
+			# A dark plate: white text does not read on the light-blue grid.
+			draw_rect(Rect2(MARGIN_PIXELS - 3.0, size.y * 0.5 - 12.0, size.x - 2.0 * MARGIN_PIXELS + 6.0, 30.0), PixelGlyphs.COLOR_OUTLINE)
 			_draw_text(Vector2(MARGIN_PIXELS, size.y * 0.5), "No parts yet.", size.x - 2.0 * MARGIN_PIXELS,
 					EMPTY_FONT_SIZE_PIXELS, ScreenLayout.COLOR_TEXT_LIGHT)
 			_draw_text(Vector2(MARGIN_PIXELS, size.y * 0.5 + 12.0), "Pick an engine from the list.", size.x - 2.0 * MARGIN_PIXELS,
@@ -280,6 +306,8 @@ func _draw() -> void:
 
 	for block_index in _blocks.size():
 		_draw_block(_blocks[block_index], block_index == _hovered_block_index)
+	for group in _payload_groups:
+		_draw_payload_group(group)
 	if _nose_cone_points.size() == 3:
 		draw_colored_polygon(_nose_cone_points, COLOR_NOSE_CONE)
 		draw_polyline(_nose_cone_points + PackedVector2Array([_nose_cone_points[0]]), COLOR_OUTLINE, 1.0)
@@ -375,8 +403,12 @@ func _draw_block(block: Dictionary, is_hovered: bool) -> void:
 		BlockKind.PAYLOAD:
 			draw_rect(block_rect, COLOR_PAYLOAD)
 			draw_rect(block_rect, COLOR_OUTLINE, false, 1.0)
+			# The icon and the label are drawn once per run of identical parts.
+			if is_hovered:
+				draw_rect(block_rect, ScreenLayout.COLOR_WARNING_RED, false, 2.0)
+			return
 
-	_draw_icon(block_rect, part_id)
+	_draw_icon(block_rect, part_id, block_kind == BlockKind.ENGINE)
 	if is_interactive:
 		var part: Dictionary = GameData.part(part_id)
 		var label_color: Color = ScreenLayout.COLOR_WARNING_RED if is_hovered else ScreenLayout.COLOR_TEXT_LIGHT
@@ -388,19 +420,58 @@ func _draw_block(block: Dictionary, is_hovered: bool) -> void:
 			draw_rect(block_rect, ScreenLayout.COLOR_WARNING_RED, false, 2.0)
 
 
-func _draw_icon(block_rect: Rect2, part_id: String) -> void:
-	var icon_size_pixels: float = minf(block_rect.size.y, block_rect.size.x) - 4.0
-	if icon_size_pixels < SMALLEST_BLOCK_WITH_ICON_PIXELS - 4.0:
+## One icon and one label for a run of identical payload parts. The label
+## counts the parts ("Basic altimeter ×9"); over a hovered part it names the
+## one part a click removes.
+func _draw_payload_group(group: Dictionary) -> void:
+	var group_rect: Rect2 = group["rect"]
+	var part_id: String = group["part_id"]
+	_draw_icon(group_rect, part_id)
+	if not is_interactive:
 		return
-	var icon_path: String = GameData.part(part_id).get("icon_path", "")
-	if icon_path.is_empty() or not ResourceLoader.exists(icon_path):
+	var label_text: String = short_part_name(GameData.part(part_id).get("name", part_id))
+	var is_hovered: bool = group["block_indices"].has(_hovered_block_index)
+	if is_hovered:
+		label_text = "remove: " + label_text
+	elif group["count"] > 1:
+		label_text += " ×%d" % group["count"]
+	_draw_label(group_rect, label_text, ScreenLayout.COLOR_WARNING_RED if is_hovered else ScreenLayout.COLOR_TEXT_LIGHT)
+
+
+## The icon of the part in the middle of the block. With has_plate, on a
+## light plate the size of the art: engine art is grey on the grey nozzle.
+func _draw_icon(block_rect: Rect2, part_id: String, has_plate: bool = false) -> void:
+	var icon_entry: Dictionary = _icon_entry(GameData.part(part_id).get("icon_path", ""))
+	if icon_entry.is_empty():
 		return
-	var icon: Texture2D = load(icon_path)
-	icon_size_pixels = minf(icon_size_pixels, 20.0)
-	var icon_rect := Rect2(
-			block_rect.get_center() - Vector2(icon_size_pixels, icon_size_pixels) * 0.5,
-			Vector2(icon_size_pixels, icon_size_pixels))
-	draw_texture_rect(icon, icon_rect, false)
+	var art_size: Vector2 = icon_entry["art_size"]
+	if art_size.x + 2.0 * ICON_ROOM_PIXELS > block_rect.size.x or art_size.y + 2.0 * ICON_ROOM_PIXELS > block_rect.size.y:
+		return
+	var icon: Texture2D = icon_entry["texture"]
+	# On whole game pixels, so that the half-size icon pixels stay square.
+	var icon_position: Vector2 = (block_rect.get_center() - Vector2(ICON_SIZE_PIXELS, ICON_SIZE_PIXELS) * 0.5).round()
+	if has_plate:
+		var plate_size: Vector2 = (art_size + Vector2(2.0, 2.0) * ICON_ROOM_PIXELS).ceil()
+		var plate_rect := Rect2((block_rect.get_center() - plate_size * 0.5).round(), plate_size)
+		draw_rect(plate_rect, COLOR_NOSE_CONE)
+		draw_rect(plate_rect, COLOR_OUTLINE, false, 1.0)
+	draw_texture_rect(icon, Rect2(icon_position, Vector2(ICON_SIZE_PIXELS, ICON_SIZE_PIXELS)), false)
+
+
+static func _icon_entry(icon_path: String) -> Dictionary:
+	if icon_path.is_empty():
+		return {}
+	if not _icon_cache.has(icon_path):
+		var entry: Dictionary = {}
+		if ResourceLoader.exists(icon_path):
+			var texture: Texture2D = load(icon_path)
+			var art_size := Vector2(ICON_SIZE_PIXELS, ICON_SIZE_PIXELS)
+			var image: Image = texture.get_image()
+			if image != null and not image.is_empty():
+				art_size = Vector2(image.get_used_rect().size) * ICON_SIZE_PIXELS / float(image.get_width())
+			entry = {"texture": texture, "art_size": art_size}
+		_icon_cache[icon_path] = entry
+	return _icon_cache[icon_path]
 
 
 ## The text of the "next tank" chip, or "" when no stage is selected: the

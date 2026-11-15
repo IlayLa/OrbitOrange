@@ -3,6 +3,8 @@ extends RefCounted
 var _mission: Dictionary
 var _science: Dictionary
 var _design: RocketDesign
+const FINAL_SCREEN_SCENE := preload("res://scenes/FinalScreen.tscn")
+const FINAL_SCREEN_SCRIPT := preload("res://scripts/mission/FinalScreen.gd")
 
 func run_tests(report: TestReport) -> void:
 	_mission = GameData.all_missions()[0].duplicate(true)
@@ -18,6 +20,7 @@ func run_tests(report: TestReport) -> void:
 	_check_mixed_and_extreme_results(report)
 	_check_missing_and_open_orbits(report)
 	_check_bands(report)
+	_check_final_screen_portraits(report)
 	_check_data_and_screens(report)
 	if previous_part.is_empty():
 		GameData.parts_by_id.erase(fixture_id)
@@ -238,3 +241,52 @@ func _check_data_and_screens(report: TestReport) -> void:
 	demo.free()
 	GameState.score = saved_score
 	GameState.flight_result = saved_result
+
+
+func _check_final_screen_portraits(report: TestReport) -> void:
+	var expected_poses := {
+		"Partial Success": "amit_explaining", "Success": "amit_happy", "Great Success": "amit_greatsuccess",
+		"Perfect": "amit_greatsuccess", "Scientific Breakthrough": "amit_greatsuccess",
+	}
+	for band_name in expected_poses:
+		for coin in [0, 1]:
+			report.check(FINAL_SCREEN_SCRIPT.portrait_name(band_name, coin) == expected_poses[band_name], "%s uses %s" % [band_name, expected_poses[band_name]])
+	report.check(FINAL_SCREEN_SCRIPT.portrait_name("Failure", 0) == "amit_concerned", "Failure coin heads uses amit_concerned")
+	report.check(FINAL_SCREEN_SCRIPT.portrait_name("Failure", 1) == "amit_judging", "Failure coin tails uses amit_judging")
+	var saved_score: ScoreReport = GameState.score
+	for band_name in ["Failure", "Partial Success", "Success", "Great Success", "Perfect", "Scientific Breakthrough"]:
+		var score := ScoreReport.new()
+		score.band_name = band_name
+		GameState.score = score
+		var screen: Control = FINAL_SCREEN_SCENE.instantiate()
+		GameState.add_child(screen)
+		var portrait := FINAL_SCREEN_SCRIPT.portrait_texture(band_name)
+		report.check(portrait.atlas != null and portrait.atlas.resource_path.begins_with("res://assets/art/portraits/amit_"), "%s portrait is Amit's art" % band_name)
+		var background: TextureRect = screen.find_child("EndScreenBackground", true, false)
+		var expected_background: String = "res://assets/art/screens/end/final_%s.png" % band_name.to_lower().replace(" ", "_")
+		report.check(background != null and background.texture != null and background.texture.resource_path == expected_background,
+				"%s final screen loads its own background %s" % [band_name, expected_background])
+		var bubble: Control = screen.find_child("SpeechBubble", true, false)
+		if bubble != null:
+			report.check(FINAL_SCREEN_SCRIPT.AMIT_BOX_INSIDE.encloses(Rect2(bubble.position, bubble.size)), "%s speech bubble is inside the AMIT box" % band_name)
+		var portrait_rect: TextureRect = screen.find_child("Portrait", true, false)
+		report.check(portrait_rect != null and FINAL_SCREEN_SCRIPT.AMIT_BOX_INSIDE.encloses(Rect2(portrait_rect.position, portrait_rect.size)),
+				"%s portrait is inside the AMIT box" % band_name)
+		var bubble_label: Label = screen.find_child("SpeechBubbleLabel", true, false)
+		if band_name == "Great Success":
+			report.check(bubble_label != null and bubble_label.text == "Great Success!!", "Great Success final screen says Great Success!!")
+		elif band_name == "Perfect":
+			report.check(bubble_label != null and bubble_label.text == "I Like It - Perfect", "Perfect final screen says I Like It - Perfect")
+		elif band_name == "Scientific Breakthrough":
+			report.check(bubble_label != null and bubble_label.text == "I Like It - Breakthrough", "Scientific Breakthrough final screen says I Like It - Breakthrough")
+		else:
+			report.check(bubble_label == null, "%s final screen has no speech bubble" % band_name)
+		var fireworks: Node = screen.find_child("Fireworks", true, false)
+		if band_name == "Scientific Breakthrough":
+			report.check(fireworks != null, "Scientific Breakthrough final screen shows fireworks")
+		else:
+			report.check(fireworks == null, "%s final screen has no fireworks" % band_name)
+		GameState.remove_child(screen)
+		screen.free()
+	report.check(FINAL_SCREEN_SCRIPT.background_path("Unknown band") == "res://assets/art/screens/end/final_failure.png", "an unknown band falls back to the Failure background")
+	GameState.score = saved_score

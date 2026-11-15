@@ -32,6 +32,11 @@ window/stretch/mode="canvas_items"
 window/stretch/aspect="keep"
 window/stretch/scale_mode="integer"
 
+[gui]
+
+theme/custom="res://assets/ui/ui_theme.tres"
+theme/custom_font="res://assets/ui/pixel_font.tres"
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

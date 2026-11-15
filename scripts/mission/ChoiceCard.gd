@@ -1,15 +1,20 @@
 class_name ChoiceCard
 extends CheckBox
 ## One choice on the mission screen (a mission, a science objective or a side
-## quest) as a card: a check mark, a title, at most two lines of text cut with
-## an ellipsis by the layout, then a row of glyph chips and, for science, the
-## instrument-fit stars. A card that cannot be chosen is grey with a lock.
+## quest) as a card: a check mark, a title on at most two lines, at most two
+## lines of text cut with an ellipsis by the layout, then a row of glyph chips
+## and, for science, the instrument-fit stars. A card that cannot be chosen is grey with a lock.
 ## The CheckBox text holds the title (for tests and screen readers) but is
 ## not drawn; the card face is drawn by _face.
 
 const PADDING_PIXELS := 4.0
 const MARKER_WIDTH_PIXELS := 12.0
 const TITLE_ROW_HEIGHT_PIXELS := 12.0
+## Each title line after the first.
+const TITLE_LINE_HEIGHT_PIXELS := 11.0
+const MAXIMUM_TITLE_LINE_COUNT := 2
+## Room kept right of the title for the lock of a locked card.
+const LOCK_WIDTH_PIXELS := 12.0
 const CHIP_ROW_HEIGHT_PIXELS := 11.0
 const CHIP_GAP_PIXELS := 6.0
 const MAXIMUM_BODY_LINE_COUNT := 2
@@ -26,6 +31,9 @@ var fit_star_count: int = -1
 var has_placeholder_badge: bool = false
 
 var _title: String = ""
+var _title_lines: Array[String] = []
+var _body_text: String = ""
+var _card_width_pixels: float = 0.0
 var _body_lines: Array[String] = []
 ## Each chip: "glyph", "text", "glyph_color", "text_color"; "position" is set by the layout.
 var _chips: Array[Dictionary] = []
@@ -41,17 +49,28 @@ func setup(title: String, body_text: String, chips: Array[Dictionary], card_widt
 	clip_text = true
 	focus_mode = Control.FOCUS_ALL
 	has_placeholder_badge = PixelGlyphs.is_placeholder_text(body_text)
-	var shown_body := PixelGlyphs.without_placeholder_prefix(body_text)
-	var text_width_pixels: float = card_width_pixels - 2.0 * PADDING_PIXELS - MARKER_WIDTH_PIXELS
-	_body_lines = []
-	if not shown_body.is_empty():
-		_body_lines = PixelGlyphs.wrap_lines(shown_body, text_width_pixels, MAXIMUM_BODY_LINE_COUNT)
+	_body_text = PixelGlyphs.without_placeholder_prefix(body_text)
+	_card_width_pixels = card_width_pixels
 	_chips = chips
-	tooltip_text = shown_body if tooltip_extra.is_empty() else (shown_body + "\n" + tooltip_extra).strip_edges()
+	tooltip_text = _body_text if tooltip_extra.is_empty() else (_body_text + "\n" + tooltip_extra).strip_edges()
 	_apply_styles()
+	_layout()
+
+
+## Wraps the title and the body and places the chips for the card width.
+func _layout() -> void:
+	var card_width_pixels: float = _card_width_pixels
+	var text_width_pixels: float = card_width_pixels - 2.0 * PADDING_PIXELS - MARKER_WIDTH_PIXELS
+	_title_lines = PixelGlyphs.wrap_lines(_title, _title_width(), MAXIMUM_TITLE_LINE_COUNT, PixelGlyphs.TITLE_SIZE_PIXELS)
+	_body_lines = []
+	if not _body_text.is_empty():
+		_body_lines = PixelGlyphs.wrap_lines(_body_text, text_width_pixels, MAXIMUM_BODY_LINE_COUNT)
+	# Laid out again after set_locked: drop the fit row added last time.
+	if not _chips.is_empty() and _chips[-1].get("is_fit_row", false):
+		_chips.pop_back()
 
 	var chip_left: float = PADDING_PIXELS + MARKER_WIDTH_PIXELS
-	var next_top: float = PADDING_PIXELS + TITLE_ROW_HEIGHT_PIXELS + _body_lines.size() * PixelGlyphs.LINE_HEIGHT_PIXELS
+	var next_top: float = _body_top() + _body_lines.size() * PixelGlyphs.LINE_HEIGHT_PIXELS
 	if not _chips.is_empty() or fit_star_count >= 0:
 		next_top += 2.0
 	var row_left: float = chip_left
@@ -67,7 +86,8 @@ func setup(title: String, body_text: String, chips: Array[Dictionary], card_widt
 	if fit_star_count >= 0:
 		_chips.append({"glyph": "", "text": "", "position": Vector2(chip_left, next_top), "is_fit_row": true})
 		next_top += CHIP_ROW_HEIGHT_PIXELS
-	custom_minimum_size = Vector2(card_width_pixels, ceilf(next_top + PADDING_PIXELS - 1.0))
+	# Never shrink: the screen may have stretched the card to fill its box.
+	custom_minimum_size = Vector2(card_width_pixels, maxf(custom_minimum_size.y, ceilf(next_top + PADDING_PIXELS - 1.0)))
 
 	if _face == null:
 		_face = Control.new()
@@ -90,10 +110,27 @@ func set_chosen_quietly(is_chosen: bool) -> void:
 
 ## Greys the card out and shows a lock. A locked card cannot be chosen.
 func set_locked(new_is_locked: bool) -> void:
+	var lock_changed: bool = new_is_locked != is_locked
 	is_locked = new_is_locked
 	disabled = new_is_locked
+	if lock_changed and _card_width_pixels > 0.0:
+		# The lock takes title room, so the title may wrap differently.
+		_layout()
 	if _face != null:
 		_face.queue_redraw()
+
+
+## Width of the title lines: the card less the marker, the badge and the lock.
+func _title_width() -> float:
+	var title_width: float = _card_width_pixels - 2.0 * PADDING_PIXELS - MARKER_WIDTH_PIXELS - (LOCK_WIDTH_PIXELS if is_locked else 0.0)
+	if has_placeholder_badge:
+		title_width -= PixelGlyphs.text_width("PLACEHOLDER") + 8.0
+	return title_width
+
+
+## Top of the first body line, below the one or two title lines.
+func _body_top() -> float:
+	return PADDING_PIXELS + TITLE_ROW_HEIGHT_PIXELS + maxi(0, _title_lines.size() - 1) * TITLE_LINE_HEIGHT_PIXELS
 
 
 func _apply_styles() -> void:
@@ -130,16 +167,16 @@ func _draw_face() -> void:
 	var muted_color: Color = PixelGlyphs.COLOR_DISABLED if is_locked else PixelGlyphs.COLOR_MUTED_TEXT
 	_draw_marker(Vector2(PADDING_PIXELS, PADDING_PIXELS + 2.0))
 	var text_left: float = PADDING_PIXELS + MARKER_WIDTH_PIXELS
-	var title_width: float = size.x - text_left - PADDING_PIXELS - (12.0 if is_locked else 0.0)
+	for line_index in _title_lines.size():
+		PixelGlyphs.draw_text(_face, Vector2(text_left, PADDING_PIXELS - 1.0 + line_index * TITLE_LINE_HEIGHT_PIXELS),
+				_title_lines[line_index], text_color, PixelGlyphs.TITLE_SIZE_PIXELS, _title_width())
 	if has_placeholder_badge:
-		title_width -= PixelGlyphs.text_width("PLACEHOLDER") + 8.0
-	PixelGlyphs.draw_text(_face, Vector2(text_left, PADDING_PIXELS - 1.0), _title, text_color, PixelGlyphs.TITLE_SIZE_PIXELS, title_width)
-	if has_placeholder_badge:
-		PixelGlyphs.draw_placeholder_badge(_face, Vector2(size.x - PADDING_PIXELS - PixelGlyphs.text_width("PLACEHOLDER") - 4.0 - (12.0 if is_locked else 0.0), PADDING_PIXELS + 1.0))
+		PixelGlyphs.draw_placeholder_badge(_face, Vector2(size.x - PADDING_PIXELS - PixelGlyphs.text_width("PLACEHOLDER") - 4.0 - (LOCK_WIDTH_PIXELS if is_locked else 0.0), PADDING_PIXELS + 1.0))
 	if is_locked:
 		PixelGlyphs.draw_glyph(_face, "lock", Vector2(size.x - PADDING_PIXELS - 8.0, PADDING_PIXELS + 1.0), PixelGlyphs.COLOR_MUTED_TEXT)
+	var body_top: float = _body_top()
 	for line_index in _body_lines.size():
-		PixelGlyphs.draw_text(_face, Vector2(text_left, PADDING_PIXELS + TITLE_ROW_HEIGHT_PIXELS + line_index * PixelGlyphs.LINE_HEIGHT_PIXELS),
+		PixelGlyphs.draw_text(_face, Vector2(text_left, body_top + line_index * PixelGlyphs.LINE_HEIGHT_PIXELS),
 				_body_lines[line_index], muted_color)
 	for chip in _chips:
 		if chip.get("is_fit_row", false):

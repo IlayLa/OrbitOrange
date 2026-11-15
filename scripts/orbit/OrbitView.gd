@@ -6,7 +6,15 @@ const PATH_SAMPLE_POINT_COUNT := 160
 const REFERENCE_SIZE_PIXELS := Vector2(465.0, 295.0)
 const STAGE_COLORS: Array[Color] = [Color("#64d7fb"), Color("#ffc565"), Color("#b992ff"), Color("#77e9a0"), Color("#fda5c1")]
 
+## Dark plate under labels drawn over the orbits, so rings, belts and paths
+## never run through the text.
+const COLOR_LABEL_PLATE := Color(0, 0, 0, 0.85)
+const RING_LABEL_FONT_SIZE_PIXELS := 9
+const APSIS_LABEL_FONT_SIZE_PIXELS := 10
+
 var body_radius_pixels: float = 90.0
+## Plates of the ring labels drawn this frame; the apsis labels avoid them.
+var _ring_label_rects: Array[Rect2] = []
 var pixels_per_kilometer: float = 0.06
 var _body: Dictionary = {}
 var _mission: Dictionary = {}
@@ -193,14 +201,18 @@ func _draw() -> void:
 		_draw_zone(science.get("zone", {}), false)
 	for hazard: Dictionary in _mission.get("hazard_zones", []):
 		_draw_zone(hazard, true)
-	var ring_index := 0
-	for altitude_kilometers in _mission.get("display", {}).get("altitude_ring_kilometers", []):
+	var ring_altitudes: Array = _mission.get("display", {}).get("altitude_ring_kilometers", [])
+	for altitude_kilometers in ring_altitudes:
 		var radius_pixels: float = body_radius_pixels + pixels_per_kilometer * float(altitude_kilometers)
 		draw_arc(size / 2.0, radius_pixels, 0.0, TAU, 128, Color(0.4, 0.6, 0.75, 0.3), 1.0, true)
+	# Labels after all rings, on plates, so no ring runs through one.
+	_ring_label_rects.clear()
+	for ring_index in ring_altitudes.size():
+		var radius_pixels: float = body_radius_pixels + pixels_per_kilometer * float(ring_altitudes[ring_index])
 		var label_angle_radians: float = -0.45 + float(ring_index) * 0.45
-		ring_index += 1
-		draw_string(font, size / 2.0 + Vector2(cos(label_angle_radians), sin(label_angle_radians)) * radius_pixels + Vector2(4, 3), "%d km" % altitude_kilometers,
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 9, Color("#8aa5b6"))
+		var anchor: Vector2 = size / 2.0 + Vector2(cos(label_angle_radians), sin(label_angle_radians)) * radius_pixels + Vector2(4, 3)
+		_ring_label_rects.append(_draw_plated_string(font, anchor, "%d km" % ring_altitudes[ring_index],
+				RING_LABEL_FONT_SIZE_PIXELS, Color("#8aa5b6")))
 	for ghost in _drag_curves:
 		_draw_curve(ghost, Color(0.8, 0.85, 1.0, 0.2), 1.0)
 	_draw_curve(_ghost_before, Color(0.9, 0.9, 1.0, 0.25), 1.0, true)
@@ -254,4 +266,27 @@ func _draw_apsides(elements: OrbitElements, font: Font) -> void:
 			continue
 		var position_pixels: Vector2 = world_to_screen(radius_meters * cos(angle_radians), radius_meters * sin(angle_radians))
 		draw_circle(position_pixels, 2.5, Color("#e2e5eb"))
-		draw_string(font, position_pixels + Vector2(5, -4), "A" if is_apoapsis else "P", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, Color("#e2e5eb"))
+		var label_text: String = "A" if is_apoapsis else "P"
+		var label_size: Vector2 = font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, APSIS_LABEL_FONT_SIZE_PIXELS)
+		var ascent: float = font.get_ascent(APSIS_LABEL_FONT_SIZE_PIXELS)
+		# Up-right of the dot, else the first other corner clear of the ring labels.
+		var baseline_offsets: Array[Vector2] = [Vector2(5, -4), Vector2(-5 - label_size.x, -4),
+				Vector2(5, 4 + ascent), Vector2(-5 - label_size.x, 4 + ascent)]
+		var chosen_offset: Vector2 = baseline_offsets[0]
+		for baseline_offset in baseline_offsets:
+			var label_rect := Rect2(position_pixels + baseline_offset - Vector2(1, ascent), label_size + Vector2(2, 0))
+			if not _ring_label_rects.any(func(ring_rect: Rect2) -> bool: return ring_rect.intersects(label_rect)):
+				chosen_offset = baseline_offset
+				break
+		_draw_plated_string(font, position_pixels + chosen_offset, label_text, APSIS_LABEL_FONT_SIZE_PIXELS, Color("#e2e5eb"))
+
+
+## Draws text whose baseline starts at baseline_position on a dark plate;
+## returns the plate.
+func _draw_plated_string(font: Font, baseline_position: Vector2, text: String, font_size_pixels: int, text_color: Color) -> Rect2:
+	var text_size: Vector2 = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size_pixels)
+	var ascent: float = font.get_ascent(font_size_pixels)
+	var plate_rect := Rect2(baseline_position - Vector2(1, ascent), Vector2(text_size.x + 2, text_size.y)).abs()
+	draw_rect(plate_rect, COLOR_LABEL_PLATE)
+	draw_string(font, baseline_position, text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size_pixels, text_color)
+	return plate_rect

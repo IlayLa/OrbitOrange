@@ -10,11 +10,15 @@ extends Control
 ## It writes the PNGs into the folder and quits.
 
 const CAPTURE_ARGUMENT_PREFIX := "--capture-directory="
+## With this argument only the final screen is captured, once per band.
+const ONLY_FINAL_ARGUMENT := "--only-final"
+const BAND_NAMES := ["Failure", "Partial Success", "Success", "Great Success", "Perfect", "Scientific Breakthrough"]
 const DEFAULT_DIRECTORY := "user://screens"
 const LEFT_TO_RIGHT_LOCALE := "en"
 
 var _directory: String = DEFAULT_DIRECTORY
 var _screen: Node
+var _is_only_final: bool = false
 
 
 func _ready() -> void:
@@ -24,11 +28,18 @@ func _ready() -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with(CAPTURE_ARGUMENT_PREFIX):
 			_directory = argument.trim_prefix(CAPTURE_ARGUMENT_PREFIX)
+		elif argument == ONLY_FINAL_ARGUMENT:
+			_is_only_final = true
 	_capture_all.call_deferred()
 
 
 func _capture_all() -> void:
 	DirAccess.make_dir_recursive_absolute(_directory)
+	if _is_only_final:
+		await _capture_final_bands()
+		print("Screens saved to ", ProjectSettings.globalize_path(_directory))
+		get_tree().quit()
+		return
 
 	# Main menu, and the Data Sources codex opened from it.
 	_show("res://scenes/MainMenu.tscn")
@@ -132,9 +143,22 @@ func _capture_all() -> void:
 	_prepare_sample_result(true)
 	_show("res://scenes/FinalScreen.tscn")
 	await _capture("final_screen_launch_failure")
+	await _capture_final_bands()
 
 	print("Screens saved to ", ProjectSettings.globalize_path(_directory))
 	get_tree().quit()
+
+
+## The final screen once per band, from the same sample flight.
+func _capture_final_bands() -> void:
+	for band_name in BAND_NAMES:
+		_prepare_sample_result(false)
+		GameState.score.band_name = band_name
+		_show("res://scenes/FinalScreen.tscn")
+		await _capture("final_band_" + band_name.to_lower().replace(" ", "_"))
+	_screen.show_flight_log(true)
+	_screen.select_event(3)
+	await _capture("final_flight_log")
 
 
 ## A scored flight a little off target, with a failed quest and five events.

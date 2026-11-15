@@ -25,6 +25,12 @@ const ROCKET_DESIGN_STAT_CHIP_RECTS: Array[Rect2] = [
 	Rect2(372, 6, 68, 38),
 	Rect2(444, 6, 72, 38),
 ]
+## The back button of the rocket design screen: inside the left panel's frame,
+## in the bezel strip above the rocket preview, lined up with the preview's
+## left edge. (ScreenLayout.BACK_BUTTON_RECT, used by the orbit planning
+## screen, would stick out of this screen's panel and cover the Data Sources
+## codex's CLOSE button.)
+const ROCKET_DESIGN_BACK_BUTTON_RECT := Rect2(75, 39, 64, 18)
 const LAUNCH_BUTTON_SIZE := Vector2(84, 28)
 const EXAMPLE_BUTTON_SIZE := Vector2(132, 28)
 const PLAN_BUTTON_SIZE := Vector2(96, 28)
@@ -33,6 +39,18 @@ const MESSAGE_FONT_SIZE_PIXELS := 8
 const BUTTON_FONT_SIZE_PIXELS := 10
 const BACK_BUTTON_FONT_SIZE_PIXELS := 8
 const LAMP_BAR_HEIGHT_PIXELS := 13.0
+
+## Amit reacts to the lamp under the mouse, pinned or focused: judging for a
+## warning, concerned for a problem that blocks the launch. Her portrait sits
+## on a dark plate just right of the lamp bar and the message line, as tall
+## as both, framed in the lamp's colour.
+const AMIT_PORTRAIT_FOLDER := "res://assets/art/portraits/"
+const AMIT_PORTRAIT_FOR_WARNING := "amit_judging"
+const AMIT_PORTRAIT_FOR_BLOCKING := "amit_concerned"
+## Top-left of her head and shoulders in the 128x80 sprites, drawn 1:1; the
+## crop's size is the plate's inside (ScreenLayout.OVERVIEW_AMIT_PLATE).
+const AMIT_PORTRAIT_CROP_ORIGIN := Vector2(35, 2)
+const AMIT_PLATE_BORDER_PIXELS := 1
 
 const MESSAGE_NO_MISSION := "No mission selected."
 const MESSAGE_READY := "Ready to launch."
@@ -59,7 +77,15 @@ var _lamps: Array[Dictionary] = []
 ## The sentence of the lamp the player points at or pinned; "" for none.
 var _active_lamp_sentence: String = ""
 var _active_lamp_severity: int = WarningLamps.Severity.OK
+var _amit_plate: Panel
+var _amit_plate_style: StyleBoxFlat
+var _amit_portrait: TextureRect
+## Amit's cropped portraits by pose name, built once in _create_top_bezel.
+var _amit_textures: Dictionary = {}
 var _rocket_design_holder: Control
+var _rocket_design_stat_chips: StatChips
+## True while the rocket design screen shows its Data Sources codex.
+var _is_rocket_design_codex_open: bool = false
 var _orbit_planning_holder: Control
 var _all_stat_chips: Array[StatChips] = []
 var _input_blocker: Control
@@ -77,6 +103,8 @@ func _ready() -> void:
 
 	rocket_design_screen = ROCKET_DESIGN_SCENE.instantiate()
 	_rocket_design_holder = _create_detail_holder(rocket_design_screen, ROCKET_DESIGN_STAT_CHIP_RECTS, true)
+	_rocket_design_stat_chips = _all_stat_chips.back()
+	rocket_design_screen.data_sources_visibility_changed.connect(_on_rocket_design_codex_visibility_changed)
 	orbit_planning_screen = ORBIT_PLANNING_SCENE.instantiate()
 	_orbit_planning_holder = _create_detail_holder(
 			orbit_planning_screen, ScreenLayout.ORBIT_PLANNING_STAT_CHIP_SCREENS, false)
@@ -84,14 +112,13 @@ func _ready() -> void:
 	back_button = Button.new()
 	back_button.text = "< BACK"
 	back_button.tooltip_text = "Back to the overview (Esc)"
-	back_button.position = ScreenLayout.BACK_BUTTON_RECT.position
 	back_button.focus_mode = Control.FOCUS_NONE
-	# The rectangle is only 22 pixels high, so the text is one size smaller.
+	# The rectangles are only about 20 pixels high, so the text is one size smaller.
 	back_button.add_theme_font_size_override("font_size", BACK_BUTTON_FONT_SIZE_PIXELS)
 	back_button.pressed.connect(zoom_back_to_overview)
 	back_button.hide()
 	add_child(back_button)
-	_set_size_when_font_is_known(back_button, ScreenLayout.BACK_BUTTON_RECT.size)
+	_place_back_button(ScreenLayout.BACK_BUTTON_RECT)
 
 	# Catches every click while a zoom animation runs.
 	_input_blocker = Control.new()
@@ -129,6 +156,9 @@ func zoom_back_to_overview() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if current_screen == Screen.OVERVIEW or not is_on_screen():
 		return
+	# With the codex open, Esc closes the codex, not the screen.
+	if _is_rocket_design_codex_open and current_screen == Screen.ROCKET_DESIGN:
+		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		zoom_back_to_overview()
@@ -164,7 +194,35 @@ func _run_zoom(zoom_tween: Tween) -> void:
 func _on_zoom_finished() -> void:
 	_is_zoom_running = false
 	_input_blocker.hide()
-	back_button.visible = current_screen != Screen.OVERVIEW
+	if current_screen != Screen.OVERVIEW:
+		_place_back_button(back_button_rect_of(current_screen))
+	_refresh_detail_chrome()
+
+
+## Where the back button sits on a detail screen.
+func back_button_rect_of(screen: Screen) -> Rect2:
+	if screen == Screen.ROCKET_DESIGN:
+		return ROCKET_DESIGN_BACK_BUTTON_RECT
+	return ScreenLayout.BACK_BUTTON_RECT
+
+
+func _place_back_button(button_rect: Rect2) -> void:
+	back_button.position = button_rect.position
+	_set_size_when_font_is_known(back_button, button_rect.size)
+
+
+## The back button and the rocket design screen's stat chips are drawn above
+## the detail screen, so they would sit on top of its Data Sources codex. They
+## step aside while the codex is open.
+func _refresh_detail_chrome() -> void:
+	var is_codex_open: bool = _is_rocket_design_codex_open and current_screen == Screen.ROCKET_DESIGN
+	back_button.visible = current_screen != Screen.OVERVIEW and not _is_zoom_running and not is_codex_open
+	_rocket_design_stat_chips.visible = not is_codex_open
+
+
+func _on_rocket_design_codex_visibility_changed(is_open: bool) -> void:
+	_is_rocket_design_codex_open = is_open
+	_refresh_detail_chrome()
 
 
 ## A Button cannot be made smaller than its text, and it measures its text
@@ -193,15 +251,7 @@ func _create_overview() -> void:
 	_overview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_overview)
 
-	var background := TextureRect.new()
-	background.name = "AmitPlanningBackground"
-	background.texture = load(ScreenLayout.PLANNING_OVERVIEW_BACKGROUND_PATH)
-	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.size = ScreenLayout.SCREEN_SIZE
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_overview.add_child(background)
+	ScreenLayout.add_mockup_background(_overview, ScreenLayout.PLANNING_OVERVIEW_BACKGROUND_PATH, "AmitPlanningBackground")
 
 	var rocket_monitor_rect: Rect2 = ScreenLayout.OVERVIEW_ROCKET_MONITOR_SCREEN
 	_rocket_monitor_preview = RocketStackPreview.new()
@@ -230,6 +280,34 @@ func _create_overview() -> void:
 	_create_top_bezel()
 
 
+## LAUNCH is the one orange button: black text on an orange fill, a white
+## frame under the mouse, a darker orange while pressed. Disabled, it keeps
+## the skin's grey disabled frame, like every other button.
+func _apply_launch_style(button: Button) -> void:
+	var normal_style := _launch_stylebox(ScreenLayout.COLOR_ACCENT_ORANGE, Color.BLACK)
+	var hover_style := _launch_stylebox(ScreenLayout.COLOR_ACCENT_ORANGE.lightened(0.2), ScreenLayout.COLOR_TEXT_LIGHT)
+	var pressed_style := _launch_stylebox(ScreenLayout.COLOR_ACCENT_ORANGE.darkened(0.25), Color.BLACK)
+	button.add_theme_stylebox_override("normal", normal_style)
+	button.add_theme_stylebox_override("hover", hover_style)
+	button.add_theme_stylebox_override("pressed", pressed_style)
+	button.add_theme_stylebox_override("hover_pressed", pressed_style)
+	for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_hover_pressed_color",
+			"font_pressed_color"]:
+		button.add_theme_color_override(color_name, Color.BLACK)
+
+
+func _launch_stylebox(fill_color: Color, border_color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill_color
+	style.border_color = border_color
+	style.set_border_width_all(1)
+	style.content_margin_left = 5.0
+	style.content_margin_right = 5.0
+	style.content_margin_top = 2.0
+	style.content_margin_bottom = 2.0
+	return style
+
+
 func _create_top_bezel() -> void:
 	var top_bezel: Rect2 = ScreenLayout.OVERVIEW_TOP_BEZEL
 
@@ -238,7 +316,7 @@ func _create_top_bezel() -> void:
 	launch_button.position = top_bezel.position + Vector2(0, 2)
 	launch_button.focus_mode = Control.FOCUS_NONE
 	launch_button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE_PIXELS)
-	launch_button.add_theme_color_override("font_color", ScreenLayout.COLOR_ACCENT_ORANGE)
+	_apply_launch_style(launch_button)
 	launch_button.pressed.connect(_on_launch_pressed)
 	_overview.add_child(launch_button)
 	_set_size_when_font_is_known(launch_button, LAUNCH_BUTTON_SIZE)
@@ -293,10 +371,38 @@ func _create_top_bezel() -> void:
 	_message_label.add_theme_font_size_override("normal_font_size", MESSAGE_FONT_SIZE_PIXELS)
 	_message_label.add_theme_constant_override("line_separation", -1)
 	var message_style := StyleBoxFlat.new()
-	message_style.bg_color = Color(ScreenLayout.COLOR_SPACE_BLACK, 0.55)
+	# Solid: red and amber sentences need a dark plate, not the tan bezel through it.
+	message_style.bg_color = PixelGlyphs.COLOR_OUTLINE
 	message_style.set_content_margin_all(2)
 	_message_label.add_theme_stylebox_override("normal", message_style)
 	_overview.add_child(_message_label)
+
+	_amit_plate = Panel.new()
+	_amit_plate.name = "AmitPlate"
+	var plate_rect: Rect2 = ScreenLayout.OVERVIEW_AMIT_PLATE
+	# As tall as the lamp bar and the message line together.
+	_amit_plate.position = Vector2(plate_rect.position.x, lamps_top_pixels)
+	_amit_plate.size = Vector2(plate_rect.size.x, top_bezel.end.y - lamps_top_pixels)
+	_amit_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_amit_plate_style = StyleBoxFlat.new()
+	_amit_plate_style.bg_color = PixelGlyphs.COLOR_OUTLINE
+	_amit_plate_style.set_border_width_all(AMIT_PLATE_BORDER_PIXELS)
+	_amit_plate.add_theme_stylebox_override("panel", _amit_plate_style)
+	_amit_plate.hide()
+	_overview.add_child(_amit_plate)
+	_amit_portrait = TextureRect.new()
+	_amit_portrait.name = "AmitPortrait"
+	var crop_size: Vector2 = _amit_plate.size - Vector2.ONE * 2 * AMIT_PLATE_BORDER_PIXELS
+	_amit_portrait.position = Vector2.ONE * AMIT_PLATE_BORDER_PIXELS
+	_amit_portrait.size = crop_size
+	_amit_portrait.stretch_mode = TextureRect.STRETCH_KEEP
+	_amit_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_amit_plate.add_child(_amit_portrait)
+	for portrait_name in [AMIT_PORTRAIT_FOR_WARNING, AMIT_PORTRAIT_FOR_BLOCKING]:
+		var texture := AtlasTexture.new()
+		texture.atlas = load(AMIT_PORTRAIT_FOLDER + portrait_name + ".png")
+		texture.region = Rect2(AMIT_PORTRAIT_CROP_ORIGIN, crop_size)
+		_amit_textures[portrait_name] = texture
 
 
 ## A see-through button over a monitor: a light frame appears under the mouse.
@@ -429,3 +535,30 @@ func _on_active_lamp_changed(sentence: String, severity: int) -> void:
 	_active_lamp_sentence = sentence
 	_active_lamp_severity = severity
 	_update_message()
+	_update_amit_portrait()
+
+
+## Shows Amit while a lamp is hovered, pinned or focused; hides her otherwise.
+## Runs on every active_sentence_changed, which LampBar.set_lamps also sends,
+## so each _refresh (launch included) updates her too.
+func _update_amit_portrait() -> void:
+	if _amit_plate == null:
+		return
+	var portrait_name := amit_portrait_name(_active_lamp_sentence, _active_lamp_severity)
+	if portrait_name.is_empty() or GameState.has_launched:
+		_amit_plate.hide()
+		return
+	_amit_portrait.texture = _amit_textures[portrait_name]
+	_amit_plate_style.border_color = PixelGlyphs.lamp_color(_active_lamp_severity)
+	_amit_plate.show()
+
+
+## Amit's pose for the active lamp: "" when no lamp is active.
+static func amit_portrait_name(sentence: String, severity: int) -> String:
+	if sentence.is_empty():
+		return ""
+	if severity == WarningLamps.Severity.BLOCKING:
+		return AMIT_PORTRAIT_FOR_BLOCKING
+	if severity == WarningLamps.Severity.WARNING:
+		return AMIT_PORTRAIT_FOR_WARNING
+	return ""

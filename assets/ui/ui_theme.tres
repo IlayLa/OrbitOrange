@@ -1,0 +1,107 @@
+[gd_resource type="Theme" load_steps=10 format=3]
+
+; The button skin's pixels live inside this file, not in a PNG: the project
+; theme loads before a fresh clone's first import, when no imported PNG exists
+; yet. tools/build_button_skin.gd rewrites the "data" line from design/buttons.png.
+[sub_resource type="Image" id="Image_skin"]
+data = {
+"data": PackedByteArray(0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 88, 210, 0, 255, 244, 255, 236, 255, 88, 210, 0, 255, 88, 210, 0, 255, 0, 0, 0, 0, 88, 210, 0, 255, 255, 80, 0, 255, 255, 255, 255, 255, 255, 80, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255),
+"format": "RGBA8",
+"height": 3,
+"mipmaps": false,
+"width": 12
+}
+
+[sub_resource type="ImageTexture" id="ImageTexture_skin"]
+image = SubResource("Image_skin")
+
+; The OptionButton arrow: a black 7x4 triangle, readable on the white skin.
+; (The engine's default arrow is light grey and vanishes on white.)
+[sub_resource type="Image" id="Image_arrow"]
+data = {
+"data": PackedByteArray(0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+"format": "RGBA8",
+"height": 4,
+"mipmaps": false,
+"width": 7
+}
+
+[sub_resource type="ImageTexture" id="ImageTexture_arrow"]
+image = SubResource("Image_arrow")
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_normal"]
+content_margin_left = 5.0
+content_margin_top = 2.0
+content_margin_right = 5.0
+content_margin_bottom = 2.0
+texture = SubResource("ImageTexture_skin")
+texture_margin_left = 1.0
+texture_margin_top = 1.0
+texture_margin_right = 1.0
+texture_margin_bottom = 1.0
+region_rect = Rect2(0, 0, 3, 3)
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_hover"]
+content_margin_left = 5.0
+content_margin_top = 2.0
+content_margin_right = 5.0
+content_margin_bottom = 2.0
+texture = SubResource("ImageTexture_skin")
+texture_margin_left = 1.0
+texture_margin_top = 1.0
+texture_margin_right = 1.0
+texture_margin_bottom = 1.0
+region_rect = Rect2(9, 0, 3, 3)
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_pressed"]
+content_margin_left = 5.0
+content_margin_top = 2.0
+content_margin_right = 5.0
+content_margin_bottom = 2.0
+texture = SubResource("ImageTexture_skin")
+texture_margin_left = 1.0
+texture_margin_top = 1.0
+texture_margin_right = 1.0
+texture_margin_bottom = 1.0
+region_rect = Rect2(3, 0, 3, 3)
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_disabled"]
+content_margin_left = 5.0
+content_margin_top = 2.0
+content_margin_right = 5.0
+content_margin_bottom = 2.0
+texture = SubResource("ImageTexture_skin")
+texture_margin_left = 1.0
+texture_margin_top = 1.0
+texture_margin_right = 1.0
+texture_margin_bottom = 1.0
+region_rect = Rect2(0, 0, 3, 3)
+modulate_color = Color(0.55, 0.55, 0.55, 1)
+
+[sub_resource type="StyleBoxTexture" id="StyleBoxTexture_focus"]
+content_margin_left = 5.0
+content_margin_top = 2.0
+content_margin_right = 5.0
+content_margin_bottom = 2.0
+texture = SubResource("ImageTexture_skin")
+texture_margin_left = 1.0
+texture_margin_top = 1.0
+texture_margin_right = 1.0
+texture_margin_bottom = 1.0
+region_rect = Rect2(6, 0, 3, 3)
+draw_center = false
+
+[resource]
+Button/colors/font_color = Color(0, 0, 0, 1)
+Button/colors/font_disabled_color = Color(0.25, 0.25, 0.25, 1)
+Button/colors/font_focus_color = Color(0, 0, 0, 1)
+Button/colors/font_hover_color = Color(0, 0, 0, 1)
+Button/colors/font_hover_pressed_color = Color(0, 0, 0, 1)
+Button/colors/font_pressed_color = Color(0, 0, 0, 1)
+Button/styles/disabled = SubResource("StyleBoxTexture_disabled")
+Button/styles/focus = SubResource("StyleBoxTexture_focus")
+Button/styles/hover = SubResource("StyleBoxTexture_hover")
+Button/styles/hover_pressed = SubResource("StyleBoxTexture_pressed")
+Button/styles/normal = SubResource("StyleBoxTexture_normal")
+Button/styles/pressed = SubResource("StyleBoxTexture_pressed")
+OptionButton/icons/arrow = SubResource("ImageTexture_arrow")
