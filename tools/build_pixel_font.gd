@@ -16,6 +16,12 @@ extends SceneTree
 ## on the sheet always wins over its stand-in; delete the stand-in once the
 ## artist has drawn it.
 ##
+## The sheet draws g, p, q and y at cap height, standing on the baseline like
+## the other letters, so g and q read as 9. GLYPH_DROPS lowers them below the
+## baseline into the descender rows, so their tails hang like real
+## descenders. Delete an entry once the artist draws that letter with a
+## descender on the sheet.
+##
 ## Rebuild after editing the sheet (Git Bash, from the project folder):
 ##     "$GODOT_EXECUTABLE" --headless --path . -s res://tools/build_pixel_font.gd
 
@@ -44,8 +50,12 @@ const GLYPH_ROWS := [
 	{"area": Rect2i(0, 34, 64, 8), "baseline": 41, "characters": "abcdefghijklm"},
 	{"area": Rect2i(0, 42, 64, 8), "baseline": 49, "characters": "nopqrstuvwxy"},
 	{"area": Rect2i(0, 50, 8, 6), "baseline": 55, "characters": "z"},
-	{"area": Rect2i(8, 54, 56, 10), "baseline": 62, "characters": "θϒΔ$", "breaks": [23]},
+	{"area": Rect2i(8, 54, 56, 10), "baseline": 62, "characters": "θγΔ$", "breaks": [23]},
 ]
+
+## Pixel rows each letter is drawn lower than the sheet's baseline. At most
+## DESCENT, so the tail stays inside the line.
+const GLYPH_DROPS := {"g": 2, "p": 2, "q": 2, "y": 2}
 
 ## Stand-ins until the sheet has these characters. Each is 8 rows: rows 0-6
 ## are the cap height (row 6 is the baseline row), row 7 is the descender.
@@ -77,13 +87,14 @@ const STAND_IN_GLYPHS := {
 	"<": ["...", "..#", ".#.", "#..", ".#.", "..#", "...", "..."],
 	">": ["...", "#..", ".#.", "..#", ".#.", "#..", "...", "..."],
 	"#": [".....", ".#.#.", "#####", ".#.#.", "#####", ".#.#.", ".....", "....."],
+	"&": [".##..", "#..#.", "#.#..", ".#...", "#.#.#", "#..#.", ".##.#", "....."],
 	"*": ["...", "#.#", ".#.", "#.#", "...", "...", "...", "..."],
 	"·": [".", ".", ".", ".", "#", ".", ".", "."],
 	"•": ["..", "..", "..", "##", "##", "..", "..", ".."],
 	"×": ["...", "...", "...", "#.#", ".#.", "#.#", "...", "..."],
 	"✖": [".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "....."],
 	"→": [".....", ".....", "..#..", "...#.", "#####", "...#.", "..#..", "....."],
-	"≈": ["....", "....", ".#.#", "#.#.", "....", ".#.#", "#.#.", "...."],
+	"≈": [".....", ".....", ".##.#", "#..#.", ".....", ".##.#", "#..#.", "....."],
 	"≥": ["...", "#..", ".#.", "..#", ".#.", "#..", "###", "..."],
 	"≤": ["...", "..#", ".#.", "#..", ".#.", "..#", "###", "..."],
 	"±": ["...", ".#.", "###", ".#.", "...", "###", "...", "..."],
@@ -127,8 +138,9 @@ func _init() -> void:
 			return
 		for index in characters.length():
 			var rect: Rect2i = glyph_rects[index]
+			var drop: int = GLYPH_DROPS.get(characters[index], 0)
 			_add_glyph(font, cache_size, characters.unicode_at(index), rect,
-					int(glyph_row["baseline"]), rect.size.x + LETTER_SPACING, 0)
+					int(glyph_row["baseline"]) - drop, rect.size.x + LETTER_SPACING, 0)
 			glyph_count += 1
 		sheet_characters += characters
 
