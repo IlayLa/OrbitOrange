@@ -113,7 +113,7 @@ static func _nominal() -> TelemetryFrame:
 	frame.simulation_time_seconds = 1800.0
 	frame.time_scale = FlightSimulation.NORMAL_TIME_SCALE
 	frame.delta_v_remaining_meters_per_second = 4440.0
-	frame.seconds_until_next_pulse = 1234.0
+	frame.seconds_until_next_pulse = 2.0 * 86400.0 + 3.0 * 3600.0
 	frame.data_generated_megabits = 3.2
 	frame.data_delivered_megabits = 3.2
 	frame.is_radar_installed = true
@@ -174,7 +174,7 @@ static func _launch_burn() -> TelemetryFrame:
 	frame.simulation_time_seconds = 40.0
 	frame.time_scale = 8.0 * FlightSimulation.NORMAL_TIME_SCALE
 	frame.delta_v_remaining_meters_per_second = 7900.0
-	frame.seconds_until_next_pulse = 2650.0
+	frame.seconds_until_next_pulse = 12.0 * 86400.0
 	frame.data_generated_megabits = 0.0
 	frame.data_delivered_megabits = 0.0
 	frame.readings_by_channel[TelemetryFrame.CHANNEL_ALTITUDE_METERS] = reading(true, true, 12000.0)

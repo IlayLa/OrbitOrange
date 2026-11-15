@@ -67,7 +67,8 @@ static func truth_text() -> String:
 	var body: Dictionary = GameData.body(GameState.mission.get("body_id", "earth"))
 	var body_radius_meters := float(body.get("radius_meters", 0.0))
 	var gravitational_parameter := float(body.get("gravitational_parameter_cubic_meters_per_second_squared", 0.0))
-	lines.append("T+ %.1f s   scale %sx" % [FlightSimulation.simulation_time_seconds, FlightSimulation.time_scale])
+	lines.append("T+ %.1f s   %s (%.0f s/s)" % [FlightSimulation.simulation_time_seconds,
+			ReadingFormat.time_scale_label(FlightSimulation.time_scale), FlightSimulation.time_scale])
 	lines.append("altitude   %.3f km" % (Kepler.altitude_meters(state, body) / 1000.0))
 	lines.append("speed      %.1f m/s" % state.speed_meters_per_second())
 	lines.append("path angle %+.2f°" % rad_to_deg(Kepler.flight_path_angle_radians(state)))

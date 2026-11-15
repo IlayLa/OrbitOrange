@@ -21,7 +21,13 @@ const NORMAL_TIME_SCALE := 1000.0
 const SPEED_MULTIPLIERS: Array[float] = [0.5, 1.0, 2.0, 4.0, 8.0]
 ## Pause followed by NORMAL_TIME_SCALE times each of SPEED_MULTIPLIERS.
 const ALLOWED_TIME_SCALES: Array[float] = [0.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]
-const PULSE_SLOWDOWN_LEAD_SECONDS := 2.0 * SIMULATION_STEP_SECONDS
+## Faster speeds drop back to 1x this long before a planned pulse: one real
+## second at 1x, so the player sees the slowdown before the burn.
+const PULSE_SLOWDOWN_LEAD_SECONDS := 1.0 * NORMAL_TIME_SCALE
+## The most real time one rendered frame may turn into flight time. After a
+## hitch, or on a machine too slow for the chosen speed, the flight runs slower
+## instead of asking the next frame for even more work.
+const MAX_REAL_SECONDS_PER_FRAME := 0.1
 const LOW_FUEL_FRACTION := 0.1
 const AMBIENT_TEMPERATURE_KELVIN := 300.0
 const OVER_TEMPERATURE_KELVIN := 350.0
@@ -217,13 +223,13 @@ func advance_simulation(seconds: float) -> void:
 		boundary_time_seconds = minf(boundary_time_seconds, _launch_stage_ends_at_seconds)
 		boundary_time_seconds = minf(boundary_time_seconds, _terminal_boundary_time_seconds())
 		boundary_time_seconds = minf(boundary_time_seconds, pulse_time_seconds)
-		boundary_time_seconds = minf(boundary_time_seconds, _telemetry_feed.next_sample_time_seconds())
 		boundary_time_seconds = minf(boundary_time_seconds, slowdown_time_seconds)
 		boundary_time_seconds = _escape_crossing_time_seconds(boundary_time_seconds)
 		var elapsed_seconds := boundary_time_seconds - simulation_time_seconds
 		if elapsed_seconds > _seconds_not_yet_simulated + 1.0e-9:
 			return
 		_seconds_not_yet_simulated = maxf(0.0, _seconds_not_yet_simulated - elapsed_seconds)
+		_sample_instruments_before(boundary_time_seconds)
 		_advance_to(boundary_time_seconds)
 		var did_slow_down := boundary_time_seconds == slowdown_time_seconds
 		if did_slow_down:
@@ -265,24 +271,41 @@ func advance_simulation(seconds: float) -> void:
 func _process(real_seconds_since_last_frame: float) -> void:
 	if not is_flying:
 		return
-	advance_simulation(real_seconds_since_last_frame * time_scale)
+	advance_simulation(minf(real_seconds_since_last_frame, MAX_REAL_SECONDS_PER_FRAME) * time_scale)
 	if is_flying:
 		telemetry_updated.emit(_create_telemetry_frame())
 
 
 func _advance_to(time_seconds: float) -> void:
 	var interval_seconds := time_seconds - simulation_time_seconds
-	var heating_seconds := interval_seconds if _launch_stage != null else clampf(
-			_pulse_readout_ends_at_seconds - simulation_time_seconds, 0.0, interval_seconds)
-	_temperature_kelvin = maxf(AMBIENT_TEMPERATURE_KELVIN,
-			_temperature_kelvin + heating_seconds * HEATING_KELVIN_PER_SECOND
-			- (interval_seconds - heating_seconds) * COOLING_KELVIN_PER_SECOND)
+	_temperature_kelvin = _temperature_at(time_seconds)
 	if _coast_segment != null and interval_seconds > 0.0:
 		_collect_science(_state_on_coast(simulation_time_seconds + interval_seconds * 0.5), interval_seconds)
 		craft_state = _state_on_coast(time_seconds)
 	else:
 		craft_state.time_seconds = time_seconds
 	simulation_time_seconds = time_seconds
+
+
+## The engine temperature at a time no earlier than now and no later than the
+## next boundary: it heats while an engine burns and cools towards ambient after.
+func _temperature_at(time_seconds: float) -> float:
+	var interval_seconds := time_seconds - simulation_time_seconds
+	var heating_seconds := interval_seconds if _launch_stage != null else clampf(
+			_pulse_readout_ends_at_seconds - simulation_time_seconds, 0.0, interval_seconds)
+	return maxf(AMBIENT_TEMPERATURE_KELVIN,
+			_temperature_kelvin + heating_seconds * HEATING_KELVIN_PER_SECOND
+			- (interval_seconds - heating_seconds) * COOLING_KELVIN_PER_SECOND)
+
+
+## The craft state at a time no earlier than now and no later than the next
+## boundary, as _advance_to would leave it. Never changes the flight.
+func _craft_state_at(time_seconds: float) -> OrbitState:
+	if _coast_segment != null and time_seconds > simulation_time_seconds:
+		return _state_on_coast(time_seconds)
+	var state := craft_state.duplicate_state()
+	state.time_seconds = time_seconds
+	return state
 
 
 func _state_on_coast(time_seconds: float) -> OrbitState:
@@ -542,20 +565,36 @@ func _acceleration_meters_per_second_squared() -> float:
 
 
 func _sample_instruments() -> void:
-	var flight_path_angle_radians := Kepler.flight_path_angle_radians(craft_state)
+	_telemetry_feed.sample(_instrument_values(craft_state, _temperature_kelvin),
+			craft_state, vehicle_state, threats, _gravitational_parameter())
+
+
+## Takes the instrument samples scheduled between now and the next boundary.
+## The flight does not stop at each one: nothing else happens between
+## boundaries, so each sample sees the state it would have seen there.
+func _sample_instruments_before(boundary_time_seconds: float) -> void:
+	if _telemetry_feed.next_sample_time_seconds() >= boundary_time_seconds:
+		return
+	_telemetry_feed.sample_before(boundary_time_seconds,
+			func(time_seconds: float) -> Dictionary:
+				return _instrument_values(_craft_state_at(time_seconds), _temperature_at(time_seconds)),
+			_craft_state_at, vehicle_state, threats, _gravitational_parameter())
+
+
+func _instrument_values(state: OrbitState, temperature_kelvin: float) -> Dictionary:
+	var flight_path_angle_radians := Kepler.flight_path_angle_radians(state)
 	var attitude_radians := flight_path_angle_radians
 	if _launch_stage != null:
 		attitude_radians = _plan.launch_angle_radians
-	elif simulation_time_seconds < _pulse_readout_ends_at_seconds:
+	elif state.time_seconds < _pulse_readout_ends_at_seconds:
 		attitude_radians = _pulse_attitude_radians
-	var values_by_channel := {
-		TelemetryFrame.CHANNEL_ALTITUDE_METERS: Kepler.altitude_meters(craft_state, _body),
+	return {
+		TelemetryFrame.CHANNEL_ALTITUDE_METERS: Kepler.altitude_meters(state, _body),
 		TelemetryFrame.CHANNEL_FUEL_KILOGRAMS: _fuel_kilograms(),
 		TelemetryFrame.CHANNEL_ATTITUDE_RADIANS: attitude_radians,
 		TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS: flight_path_angle_radians,
-		TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN: _temperature_kelvin,
+		TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN: temperature_kelvin,
 	}
-	_telemetry_feed.sample(values_by_channel, craft_state, vehicle_state, threats, _gravitational_parameter())
 
 
 func _create_telemetry_frame() -> TelemetryFrame:

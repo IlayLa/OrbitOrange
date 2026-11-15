@@ -20,7 +20,14 @@ const CHANNELS_WITH_RADAR: Array[String] = [
 
 var _random: RandomNumberGenerator
 var _parts_by_channel: Dictionary = {}
-var _next_sample_time_by_channel: Dictionary = {}
+# The installed channels in CHANNELS_WITH_RADAR order, with what sampling needs
+# per channel kept in parallel arrays: sampling runs thousands of times per
+# second at high speed, where dictionary lookups add up.
+var _sampled_channels: Array[String] = []
+var _sampled_parts: Array[Dictionary] = []
+var _sample_periods_seconds := PackedFloat64Array()
+var _dropout_probabilities := PackedFloat64Array()
+var _next_sample_times_seconds := PackedFloat64Array()
 var _held_readings: Dictionary = {}
 var _held_contacts: Dictionary = {}
 
@@ -38,13 +45,23 @@ func _init(vehicle_state: VehicleState, random: RandomNumberGenerator) -> void:
 		var current_part: Dictionary = _parts_by_channel.get(channel, {})
 		if part.get("tier", 0) > current_part.get("tier", 0):
 			_parts_by_channel[channel] = part
-			_next_sample_time_by_channel[channel] = 0.0
+	for channel in CHANNELS_WITH_RADAR:
+		if not _parts_by_channel.has(channel):
+			continue
+		var part: Dictionary = _parts_by_channel[channel]
+		var stats: Dictionary = part["stats"]
+		var updates_per_second: float = stats.get("updates_per_second", 0.0)
+		_sampled_channels.append(channel)
+		_sampled_parts.append(part)
+		_sample_periods_seconds.append(1.0 / updates_per_second if updates_per_second > 0.0 else INF)
+		_dropout_probabilities.append(float(stats.get("dropout_probability", 0.0)))
+		_next_sample_times_seconds.append(0.0)
 
 
 ## Returns the earliest scheduled instrument update in seconds since launch.
 func next_sample_time_seconds() -> float:
 	var next_time_seconds := INF
-	for sample_time_seconds: float in _next_sample_time_by_channel.values():
+	for sample_time_seconds in _next_sample_times_seconds:
 		next_time_seconds = minf(next_time_seconds, sample_time_seconds)
 	return next_time_seconds
 
@@ -53,31 +70,68 @@ func next_sample_time_seconds() -> float:
 func sample(
 		values_by_channel: Dictionary, craft_state: OrbitState, vehicle_state: VehicleState,
 		threats: Array[Threat], gravitational_parameter: float) -> void:
-	for channel in CHANNELS_WITH_RADAR:
-		if not _parts_by_channel.has(channel):
-			continue
-		var scheduled_time_seconds: float = _next_sample_time_by_channel[channel]
-		if scheduled_time_seconds > craft_state.time_seconds:
-			continue
-		var part: Dictionary = _parts_by_channel[channel]
-		var stats: Dictionary = part["stats"]
-		var updates_per_second: float = stats.get("updates_per_second", 0.0)
-		_next_sample_time_by_channel[channel] = (
-				scheduled_time_seconds + 1.0 / updates_per_second if updates_per_second > 0.0 else INF)
-		var is_working: bool = vehicle_state.is_working_by_instrument.get(part["id"], false)
-		var has_signal: bool = is_working and _random.randf() >= float(stats.get("dropout_probability", 0.0))
-		if channel == RADAR_CHANNEL:
-			_held_contacts.clear()
-			if has_signal:
-				_sample_radar(stats, craft_state, threats, gravitational_parameter)
-		else:
-			var reading := TelemetryReading.new()
-			reading.is_sensor_installed = true
-			reading.is_sensor_working = has_signal
-			reading.sensor_tier = part["tier"]
-			if has_signal:
-				reading.value = _noisy_value(values_by_channel[channel], stats)
-			_held_readings[channel] = reading
+	_sample_due(craft_state.time_seconds, true,
+			func(_time_seconds: float) -> Dictionary: return values_by_channel,
+			func(_time_seconds: float) -> OrbitState: return craft_state,
+			vehicle_state, threats, gravitational_parameter)
+
+
+## Takes every sample scheduled before end_time_seconds, in time order, so the
+## flight need not stop at each one. values_at and craft_state_at are Callables
+## that take a time in seconds and return the channel values (a Dictionary) and
+## the craft state at that time. A sample that a later one in the same call
+## replaces only draws its dropout and noise, so the random sequence, and every
+## reading left held, match sampling at each scheduled time. Radar samples with
+## threats around are always taken in full, since they reveal threats.
+func sample_before(
+		end_time_seconds: float, values_at: Callable, craft_state_at: Callable,
+		vehicle_state: VehicleState, threats: Array[Threat], gravitational_parameter: float) -> void:
+	_sample_due(end_time_seconds, false, values_at, craft_state_at, vehicle_state, threats, gravitational_parameter)
+
+
+func _sample_due(
+		end_time_seconds: float, includes_end: bool, values_at: Callable, craft_state_at: Callable,
+		vehicle_state: VehicleState, threats: Array[Threat], gravitational_parameter: float) -> void:
+	var values_time_seconds := NAN
+	var values_by_channel: Dictionary = {}
+	var channel_count := _sampled_channels.size()
+	while true:
+		var time_seconds := next_sample_time_seconds()
+		if not _is_within(time_seconds, end_time_seconds, includes_end):
+			return
+		for channel_index in channel_count:
+			if _next_sample_times_seconds[channel_index] != time_seconds:
+				continue
+			var channel := _sampled_channels[channel_index]
+			var part := _sampled_parts[channel_index]
+			var next_time_seconds := time_seconds + _sample_periods_seconds[channel_index]
+			_next_sample_times_seconds[channel_index] = next_time_seconds
+			var is_working: bool = vehicle_state.is_working_by_instrument.get(part["id"], false)
+			var has_signal: bool = is_working and _random.randf() >= _dropout_probabilities[channel_index]
+			var stats: Dictionary = part["stats"]
+			if channel == RADAR_CHANNEL:
+				_held_contacts.clear()
+				if has_signal and not threats.is_empty():
+					_sample_radar(stats, craft_state_at.call(time_seconds), threats, gravitational_parameter)
+			elif _is_within(next_time_seconds, end_time_seconds, includes_end):
+				# A later sample in this call replaces this reading: draw its noise only.
+				if has_signal:
+					_random.randf_range(-1.0, 1.0)
+			else:
+				if values_time_seconds != time_seconds:
+					values_time_seconds = time_seconds
+					values_by_channel = values_at.call(time_seconds)
+				var reading := TelemetryReading.new()
+				reading.is_sensor_installed = true
+				reading.is_sensor_working = has_signal
+				reading.sensor_tier = part["tier"]
+				if has_signal:
+					reading.value = _noisy_value(values_by_channel[channel], stats)
+				_held_readings[channel] = reading
+
+
+static func _is_within(time_seconds: float, end_time_seconds: float, includes_end: bool) -> bool:
+	return time_seconds < end_time_seconds or (includes_end and time_seconds == end_time_seconds)
 
 
 ## Copies held instrument observations into a fresh frame.
