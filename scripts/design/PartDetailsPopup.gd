@@ -20,7 +20,9 @@ extends Control
 const POPUP_WIDTH_PIXELS := 130.0
 const SCREEN_MARGIN_PIXELS := 2.0
 const PADDING_PIXELS := 4.0
-const ICON_SIZE_PIXELS := 16.0
+## The part icons are 40 x 40 (tools/build_part_icons.gd): 20 pixels draws
+## them at exactly half size, like the part cards, so no pixel is stretched.
+const ICON_SIZE_PIXELS := 20.0
 const TITLE_FONT_SIZE_PIXELS := 10
 const BODY_FONT_SIZE_PIXELS := 8
 const TITLE_LINE_HEIGHT_PIXELS := 11.0

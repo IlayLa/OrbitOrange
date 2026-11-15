@@ -13,6 +13,8 @@ signal card_unhovered
 signal card_info_requested(part_id: String)
 
 const CARD_HEIGHT_PIXELS := 46.0
+## The part icons are 40 x 40 (tools/build_part_icons.gd): 20 pixels draws
+## them at exactly half size, one icon pixel per screen pixel in the 2x window.
 const ICON_SIZE_PIXELS := 20.0
 const MARGIN_PIXELS := 3.0
 const NAME_FONT_SIZE_PIXELS := 8
