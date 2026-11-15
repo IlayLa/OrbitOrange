@@ -507,8 +507,15 @@ func _check_zoom(report: TestReport) -> void:
 	report.check(console.rocket_design_screen.is_visible_in_tree(), "the rocket design screen is shown after the zoom")
 	report.check(console.back_button.visible, "a zoomed screen has a back button")
 	report.check(
-			Rect2(console.back_button.position, console.back_button.size) == ScreenLayout.BACK_BUTTON_RECT,
-			"the back button sits in BACK_BUTTON_RECT")
+			Rect2(console.back_button.position, console.back_button.size) == console.back_button_rect_of(screen_type["ROCKET_DESIGN"]),
+			"the back button sits in its rocket design rectangle")
+	var design_panel_rect := Rect2(50, 35, 270, 350)
+	report.check(design_panel_rect.encloses(Rect2(console.back_button.position, console.back_button.size)),
+			"the rocket design back button sits inside the left panel's frame")
+	console.rocket_design_screen.open_data_sources("engine_liquid_hydrogen")
+	report.check(not console.back_button.visible, "the back button steps aside while the codex is open")
+	console.rocket_design_screen._codex.hide()
+	report.check(console.back_button.visible, "the back button returns when the codex closes")
 	console.zoom_into_orbit_planning()
 	report.check(console.current_screen == screen_type["ROCKET_DESIGN"], "a second zoom needs a return to the overview first")
 
@@ -519,6 +526,9 @@ func _check_zoom(report: TestReport) -> void:
 
 	console.zoom_into_orbit_planning()
 	report.check(console.current_screen == screen_type["ORBIT_PLANNING"], "the orbit monitor zooms into the orbit planning screen")
+	report.check(
+			Rect2(console.back_button.position, console.back_button.size) == ScreenLayout.BACK_BUTTON_RECT,
+			"the orbit planning back button sits in BACK_BUTTON_RECT")
 	report.check(console.orbit_planning_screen.is_visible_in_tree(), "the orbit planning screen is shown after the zoom")
 	var cancel_event := InputEventAction.new()
 	cancel_event.action = "ui_cancel"

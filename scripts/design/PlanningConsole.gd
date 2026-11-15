@@ -25,6 +25,12 @@ const ROCKET_DESIGN_STAT_CHIP_RECTS: Array[Rect2] = [
 	Rect2(372, 6, 68, 38),
 	Rect2(444, 6, 72, 38),
 ]
+## The back button of the rocket design screen: inside the left panel's frame,
+## in the bezel strip above the rocket preview, lined up with the preview's
+## left edge. (ScreenLayout.BACK_BUTTON_RECT, used by the orbit planning
+## screen, would stick out of this screen's panel and cover the Data Sources
+## codex's CLOSE button.)
+const ROCKET_DESIGN_BACK_BUTTON_RECT := Rect2(75, 39, 64, 18)
 const LAUNCH_BUTTON_SIZE := Vector2(84, 28)
 const EXAMPLE_BUTTON_SIZE := Vector2(132, 28)
 const PLAN_BUTTON_SIZE := Vector2(96, 28)
@@ -60,6 +66,9 @@ var _lamps: Array[Dictionary] = []
 var _active_lamp_sentence: String = ""
 var _active_lamp_severity: int = WarningLamps.Severity.OK
 var _rocket_design_holder: Control
+var _rocket_design_stat_chips: StatChips
+## True while the rocket design screen shows its Data Sources codex.
+var _is_rocket_design_codex_open: bool = false
 var _orbit_planning_holder: Control
 var _all_stat_chips: Array[StatChips] = []
 var _input_blocker: Control
@@ -77,6 +86,8 @@ func _ready() -> void:
 
 	rocket_design_screen = ROCKET_DESIGN_SCENE.instantiate()
 	_rocket_design_holder = _create_detail_holder(rocket_design_screen, ROCKET_DESIGN_STAT_CHIP_RECTS, true)
+	_rocket_design_stat_chips = _all_stat_chips.back()
+	rocket_design_screen.data_sources_visibility_changed.connect(_on_rocket_design_codex_visibility_changed)
 	orbit_planning_screen = ORBIT_PLANNING_SCENE.instantiate()
 	_orbit_planning_holder = _create_detail_holder(
 			orbit_planning_screen, ScreenLayout.ORBIT_PLANNING_STAT_CHIP_SCREENS, false)
@@ -84,14 +95,13 @@ func _ready() -> void:
 	back_button = Button.new()
 	back_button.text = "< BACK"
 	back_button.tooltip_text = "Back to the overview (Esc)"
-	back_button.position = ScreenLayout.BACK_BUTTON_RECT.position
 	back_button.focus_mode = Control.FOCUS_NONE
-	# The rectangle is only 22 pixels high, so the text is one size smaller.
+	# The rectangles are only about 20 pixels high, so the text is one size smaller.
 	back_button.add_theme_font_size_override("font_size", BACK_BUTTON_FONT_SIZE_PIXELS)
 	back_button.pressed.connect(zoom_back_to_overview)
 	back_button.hide()
 	add_child(back_button)
-	_set_size_when_font_is_known(back_button, ScreenLayout.BACK_BUTTON_RECT.size)
+	_place_back_button(ScreenLayout.BACK_BUTTON_RECT)
 
 	# Catches every click while a zoom animation runs.
 	_input_blocker = Control.new()
@@ -129,6 +139,9 @@ func zoom_back_to_overview() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if current_screen == Screen.OVERVIEW or not is_on_screen():
 		return
+	# With the codex open, Esc closes the codex, not the screen.
+	if _is_rocket_design_codex_open and current_screen == Screen.ROCKET_DESIGN:
+		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		zoom_back_to_overview()
@@ -164,7 +177,35 @@ func _run_zoom(zoom_tween: Tween) -> void:
 func _on_zoom_finished() -> void:
 	_is_zoom_running = false
 	_input_blocker.hide()
-	back_button.visible = current_screen != Screen.OVERVIEW
+	if current_screen != Screen.OVERVIEW:
+		_place_back_button(back_button_rect_of(current_screen))
+	_refresh_detail_chrome()
+
+
+## Where the back button sits on a detail screen.
+func back_button_rect_of(screen: Screen) -> Rect2:
+	if screen == Screen.ROCKET_DESIGN:
+		return ROCKET_DESIGN_BACK_BUTTON_RECT
+	return ScreenLayout.BACK_BUTTON_RECT
+
+
+func _place_back_button(button_rect: Rect2) -> void:
+	back_button.position = button_rect.position
+	_set_size_when_font_is_known(back_button, button_rect.size)
+
+
+## The back button and the rocket design screen's stat chips are drawn above
+## the detail screen, so they would sit on top of its Data Sources codex. They
+## step aside while the codex is open.
+func _refresh_detail_chrome() -> void:
+	var is_codex_open: bool = _is_rocket_design_codex_open and current_screen == Screen.ROCKET_DESIGN
+	back_button.visible = current_screen != Screen.OVERVIEW and not _is_zoom_running and not is_codex_open
+	_rocket_design_stat_chips.visible = not is_codex_open
+
+
+func _on_rocket_design_codex_visibility_changed(is_open: bool) -> void:
+	_is_rocket_design_codex_open = is_open
+	_refresh_detail_chrome()
 
 
 ## A Button cannot be made smaller than its text, and it measures its text
@@ -230,6 +271,34 @@ func _create_overview() -> void:
 	_create_top_bezel()
 
 
+## LAUNCH is the one orange button: black text on an orange fill, a white
+## frame under the mouse, a darker orange while pressed. Disabled, it keeps
+## the skin's grey disabled frame, like every other button.
+func _apply_launch_style(button: Button) -> void:
+	var normal_style := _launch_stylebox(ScreenLayout.COLOR_ACCENT_ORANGE, Color.BLACK)
+	var hover_style := _launch_stylebox(ScreenLayout.COLOR_ACCENT_ORANGE.lightened(0.2), ScreenLayout.COLOR_TEXT_LIGHT)
+	var pressed_style := _launch_stylebox(ScreenLayout.COLOR_ACCENT_ORANGE.darkened(0.25), Color.BLACK)
+	button.add_theme_stylebox_override("normal", normal_style)
+	button.add_theme_stylebox_override("hover", hover_style)
+	button.add_theme_stylebox_override("pressed", pressed_style)
+	button.add_theme_stylebox_override("hover_pressed", pressed_style)
+	for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_hover_pressed_color",
+			"font_pressed_color"]:
+		button.add_theme_color_override(color_name, Color.BLACK)
+
+
+func _launch_stylebox(fill_color: Color, border_color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill_color
+	style.border_color = border_color
+	style.set_border_width_all(1)
+	style.content_margin_left = 5.0
+	style.content_margin_right = 5.0
+	style.content_margin_top = 2.0
+	style.content_margin_bottom = 2.0
+	return style
+
+
 func _create_top_bezel() -> void:
 	var top_bezel: Rect2 = ScreenLayout.OVERVIEW_TOP_BEZEL
 
@@ -238,7 +307,7 @@ func _create_top_bezel() -> void:
 	launch_button.position = top_bezel.position + Vector2(0, 2)
 	launch_button.focus_mode = Control.FOCUS_NONE
 	launch_button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE_PIXELS)
-	launch_button.add_theme_color_override("font_color", ScreenLayout.COLOR_ACCENT_ORANGE)
+	_apply_launch_style(launch_button)
 	launch_button.pressed.connect(_on_launch_pressed)
 	_overview.add_child(launch_button)
 	_set_size_when_font_is_known(launch_button, LAUNCH_BUTTON_SIZE)

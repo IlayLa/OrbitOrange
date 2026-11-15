@@ -18,6 +18,11 @@ extends Control
 ## collapses to "?" once the first part is installed. The cell also shows a
 ## short message when a click could not be done (_hint_label).
 
+## Sent when the Data Sources codex opens or closes, so that PlanningConsole
+## can hide the chrome it draws over this screen (the back button and the
+## stat chips) while the codex is open.
+signal data_sources_visibility_changed(is_open: bool)
+
 const CATEGORIES: Array[String] = [
 	GameData.CATEGORY_ENGINE,
 	GameData.CATEGORY_TANK,
@@ -38,6 +43,10 @@ const SCROLL_BAR_WIDTH_PIXELS := 8.0
 const MAXIMUM_STAGE_COUNT := 5
 const MAXIMUM_PAYLOAD_PART_COUNT := 10
 const HINT_FONT_SIZE_PIXELS := 8
+## The tab names are drawn by the buttons, smaller than the mock-up's letters
+## at five times scale, which dwarfed the rest of the screen. The pixel font
+## is an 11 pixel face that scales by whole steps only, so 22 is twice its size.
+const TAB_FONT_SIZE_PIXELS := 22
 ## Top-left corner of the part popup: against the right edge of the screen,
 ## over the category tabs, below the back button.
 const POPUP_POSITION := Vector2(ScreenLayout.SCREEN_SIZE.x - PartDetailsPopup.POPUP_WIDTH_PIXELS - 2.0, 58.0)
@@ -107,6 +116,7 @@ func _ready() -> void:
 	add_child(_details_popup)
 
 	_codex = DataSourcesCodex.new(CODEX_PANEL_RECT)
+	_codex.visibility_changed.connect(func() -> void: data_sources_visibility_changed.emit(_codex.visible))
 	add_child(_codex)
 
 	GameState.derived_changed.connect(_refresh)
@@ -420,34 +430,45 @@ func _create_card_list() -> void:
 
 
 func _create_tabs() -> void:
-	# The mock-up already writes ENG, MAT, TEL and SCI, so the buttons only add
-	# a frame: orange for the chosen tab, light while the mouse is over one.
-	var chosen_style := StyleBoxFlat.new()
-	chosen_style.bg_color = Color(ScreenLayout.COLOR_ACCENT_ORANGE, 0.25)
-	chosen_style.border_color = ScreenLayout.COLOR_ACCENT_ORANGE
-	chosen_style.set_border_width_all(2)
-	var hover_style := StyleBoxFlat.new()
-	hover_style.bg_color = Color(ScreenLayout.COLOR_TEXT_LIGHT, 0.12)
-	hover_style.border_color = ScreenLayout.COLOR_MONITOR_GRID_LINE
-	hover_style.set_border_width_all(1)
-	var empty_style := StyleBoxEmpty.new()
+	# Each button covers its tile of the mock-up with the tile's own blue and
+	# writes the name itself, at a size that sits with the rest of the screen.
+	# The chosen tab is solid orange with black text; the mouse adds an orange
+	# frame, like the button skin's hover state.
+	var normal_style := _tab_style(ScreenLayout.COLOR_PANEL_DARK_BLUE, ScreenLayout.COLOR_PANEL_DARK_BLUE)
+	var hover_style := _tab_style(ScreenLayout.COLOR_PANEL_DARK_BLUE, ScreenLayout.COLOR_ACCENT_ORANGE)
+	var chosen_style := _tab_style(ScreenLayout.COLOR_ACCENT_ORANGE, ScreenLayout.COLOR_ACCENT_ORANGE)
+	var chosen_hover_style := _tab_style(ScreenLayout.COLOR_ACCENT_ORANGE, ScreenLayout.COLOR_TEXT_LIGHT)
 
 	for tab_index in CATEGORIES.size():
 		var tab_rect: Rect2 = ScreenLayout.ROCKET_DESIGN_CATEGORY_TABS[tab_index]
 		var tab_button := Button.new()
 		tab_button.name = TAB_NAMES[tab_index]
+		tab_button.text = TAB_NAMES[tab_index]
 		tab_button.position = tab_rect.position
 		tab_button.size = tab_rect.size
 		tab_button.toggle_mode = true
 		tab_button.focus_mode = Control.FOCUS_NONE
 		tab_button.tooltip_text = TAB_TOOLTIPS[tab_index]
-		tab_button.add_theme_stylebox_override("normal", empty_style)
+		tab_button.add_theme_font_size_override("font_size", TAB_FONT_SIZE_PIXELS)
+		tab_button.add_theme_stylebox_override("normal", normal_style)
 		tab_button.add_theme_stylebox_override("hover", hover_style)
 		tab_button.add_theme_stylebox_override("pressed", chosen_style)
-		tab_button.add_theme_stylebox_override("hover_pressed", chosen_style)
+		tab_button.add_theme_stylebox_override("hover_pressed", chosen_hover_style)
+		for color_name in ["font_color", "font_hover_color", "font_focus_color"]:
+			tab_button.add_theme_color_override(color_name, ScreenLayout.COLOR_TEXT_LIGHT)
+		for color_name in ["font_pressed_color", "font_hover_pressed_color"]:
+			tab_button.add_theme_color_override(color_name, Color.BLACK)
 		tab_button.pressed.connect(show_category.bind(CATEGORIES[tab_index]))
 		add_child(tab_button)
 		_tab_buttons.append(tab_button)
+
+
+func _tab_style(fill_color: Color, border_color: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill_color
+	style.border_color = border_color
+	style.set_border_width_all(2)
+	return style
 
 
 func _create_hint() -> void:

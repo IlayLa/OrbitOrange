@@ -76,8 +76,18 @@ func _ready() -> void:
 	close_style.border_color = COLOR_BORDER
 	close_style.set_border_width_all(1)
 	close_style.set_content_margin_all(2)
-	for style_name in ["normal", "hover", "pressed", "focus"]:
+	var close_hover_style: StyleBoxFlat = close_style.duplicate()
+	close_hover_style.border_color = ScreenLayout.COLOR_ACCENT_ORANGE
+	for style_name in ["normal", "pressed", "focus"]:
 		close_button.add_theme_stylebox_override(style_name, close_style)
+	for style_name in ["hover", "hover_pressed"]:
+		close_button.add_theme_stylebox_override(style_name, close_hover_style)
+	# The project theme writes button text in black, for its white skin; this
+	# button is dark blue, so every state gets light text.
+	for color_name in ["font_color", "font_focus_color", "font_hover_color", "font_hover_pressed_color",
+			"font_pressed_color"]:
+		close_button.add_theme_color_override(color_name, ScreenLayout.COLOR_TEXT_LIGHT)
+	close_button.add_theme_color_override("font_disabled_color", PixelGlyphs.COLOR_MUTED_TEXT)
 	close_button.position = Vector2(_panel_rect.size.x - 46, 4)
 	close_button.size = Vector2(40, 14)
 	close_button.pressed.connect(hide)

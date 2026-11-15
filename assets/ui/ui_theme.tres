@@ -1,19 +1,33 @@
-[gd_resource type="Theme" load_steps=8 format=3]
+[gd_resource type="Theme" load_steps=10 format=3]
 
 ; The button skin's pixels live inside this file, not in a PNG: the project
 ; theme loads before a fresh clone's first import, when no imported PNG exists
 ; yet. tools/build_button_skin.gd rewrites the "data" line from design/buttons.png.
 [sub_resource type="Image" id="Image_skin"]
 data = {
-"data": PackedByteArray(0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 88, 210, 0, 255, 244, 255, 236, 255, 88, 210, 0, 255, 88, 210, 0, 255, 0, 0, 0, 0, 88, 210, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255),
+"data": PackedByteArray(0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 88, 210, 0, 255, 244, 255, 236, 255, 88, 210, 0, 255, 88, 210, 0, 255, 0, 0, 0, 0, 88, 210, 0, 255, 255, 80, 0, 255, 255, 255, 255, 255, 255, 80, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 88, 210, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255, 255, 80, 0, 255),
 "format": "RGBA8",
 "height": 3,
 "mipmaps": false,
-"width": 9
+"width": 12
 }
 
 [sub_resource type="ImageTexture" id="ImageTexture_skin"]
 image = SubResource("Image_skin")
+
+; The OptionButton arrow: a black 7x4 triangle, readable on the white skin.
+; (The engine's default arrow is light grey and vanishes on white.)
+[sub_resource type="Image" id="Image_arrow"]
+data = {
+"data": PackedByteArray(0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+"format": "RGBA8",
+"height": 4,
+"mipmaps": false,
+"width": 7
+}
+
+[sub_resource type="ImageTexture" id="ImageTexture_arrow"]
+image = SubResource("Image_arrow")
 
 [sub_resource type="StyleBoxTexture" id="StyleBoxTexture_normal"]
 content_margin_left = 5.0
@@ -37,8 +51,7 @@ texture_margin_left = 1.0
 texture_margin_top = 1.0
 texture_margin_right = 1.0
 texture_margin_bottom = 1.0
-region_rect = Rect2(0, 0, 3, 3)
-modulate_color = Color(0.86, 0.86, 0.86, 1)
+region_rect = Rect2(9, 0, 3, 3)
 
 [sub_resource type="StyleBoxTexture" id="StyleBoxTexture_pressed"]
 content_margin_left = 5.0
@@ -91,3 +104,4 @@ Button/styles/hover = SubResource("StyleBoxTexture_hover")
 Button/styles/hover_pressed = SubResource("StyleBoxTexture_pressed")
 Button/styles/normal = SubResource("StyleBoxTexture_normal")
 Button/styles/pressed = SubResource("StyleBoxTexture_pressed")
+OptionButton/icons/arrow = SubResource("ImageTexture_arrow")
