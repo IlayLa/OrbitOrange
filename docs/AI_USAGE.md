@@ -9,6 +9,16 @@ To keep that record complete without several agents editing one file, **each tas
 | `ai_usage/T00.md` | The design review, the plan, the shared skeleton, the contracts and the task files |
 | `ai_usage/T01.md` … `T08.md` | One per task, written by the agent that does the task |
 | `ai_usage/review-2026-11-15.md` | The code and design review of 15 November (the review itself is in `docs/review/`) |
+| `ai_usage/submission-fixes-2026-11-15.md` | Fixes for review findings C-01, C-02, B-01, B-03 and B-04 |
+| `ai_usage/D-02.md` | Review finding D-02: telemetry and debris damage |
+| `ai_usage/assets-and-ui-2026-11-15.md` | Pull requests #8, #9 and #13 to #34: the team's art in the game, the pixel font, the button skin, readability and layout |
+| `ai_usage/burn-aiming-2026-11-15.md` | Pull request #37: aiming burns on orbit planning and the emergency overlay |
+| `ai_usage/submission-2026-11-15.md` | The web build, the README, this record and the licence, for the submission |
+
+### In short
+- **Code:** most of the game's code was written by AI coding agents (Claude Code with Claude Opus 5.5 and Claude Fable 5.2; OpenAI Codex), directed, tested and merged by the team. Each file above names the tool and model per session.
+- **Images:** no image in the game was made by an image-generation model. The part sprites, Amit's portraits, the screen mock-ups, the logo, the font sheet and the button sheet were made by the team; AI-written scripts cut, scale and place them. The placeholder portraits that T04 generated in code were removed before submission.
+- **Sound:** the game has no sound.
 
 ## What each file records
 For every working session:
