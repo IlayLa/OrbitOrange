@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/events/EmergencyOverlay.gd" id="1_overlay"]
 [ext_resource type="Script" path="res://scripts/orbit/OrbitView.gd" id="2_map"]
@@ -45,16 +45,56 @@ bg_color = Color(0.64, 0.92, 0.83, 1)
 [sub_resource type="StyleBoxFlat" id="Style_execute_hover"]
 bg_color = Color(0.79, 1, 0.93, 1)
 
+[sub_resource type="StyleBoxFlat" id="Style_disabled"]
+content_margin_left = 7.0
+content_margin_right = 7.0
+bg_color = Color(0.09, 0.125, 0.165, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.22, 0.29, 0.36, 1)
+
+; A light dropdown arrow: the project theme's arrow is black, for its white skin.
+[sub_resource type="Image" id="Image_arrow"]
+data = {
+"data": PackedByteArray(227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 0, 0, 0, 0, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 227, 237, 247, 255, 227, 237, 247, 255, 227, 237, 247, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 227, 237, 247, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+"format": "RGBA8",
+"height": 4,
+"mipmaps": false,
+"width": 7
+}
+
+[sub_resource type="ImageTexture" id="ImageTexture_arrow"]
+image = SubResource("Image_arrow")
+
 [sub_resource type="Theme" id="Theme_overlay"]
 default_font_size = 14
 Label/colors/font_color = Color(0.89, 0.93, 0.97, 1)
+Button/colors/font_color = Color(0.89, 0.93, 0.97, 1)
+Button/colors/font_disabled_color = Color(0.5, 0.58, 0.66, 1)
+Button/colors/font_focus_color = Color(0.89, 0.93, 0.97, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_pressed_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/styles/disabled = SubResource("Style_disabled")
 Button/styles/focus = SubResource("Style_focus")
 Button/styles/hover = SubResource("Style_hover")
 Button/styles/normal = SubResource("Style_control")
+Button/styles/hover_pressed = SubResource("Style_hover")
 Button/styles/pressed = SubResource("Style_hover")
+OptionButton/colors/font_color = Color(0.89, 0.93, 0.97, 1)
+OptionButton/colors/font_disabled_color = Color(0.5, 0.58, 0.66, 1)
+OptionButton/colors/font_focus_color = Color(0.89, 0.93, 0.97, 1)
+OptionButton/colors/font_hover_color = Color(1, 1, 1, 1)
+OptionButton/colors/font_hover_pressed_color = Color(1, 1, 1, 1)
+OptionButton/colors/font_pressed_color = Color(1, 1, 1, 1)
+OptionButton/icons/arrow = SubResource("ImageTexture_arrow")
+OptionButton/styles/disabled = SubResource("Style_disabled")
 OptionButton/styles/focus = SubResource("Style_focus")
 OptionButton/styles/hover = SubResource("Style_hover")
 OptionButton/styles/normal = SubResource("Style_control")
+OptionButton/styles/hover_pressed = SubResource("Style_hover")
 OptionButton/styles/pressed = SubResource("Style_hover")
 LineEdit/styles/focus = SubResource("Style_focus")
 LineEdit/styles/normal = SubResource("Style_control")

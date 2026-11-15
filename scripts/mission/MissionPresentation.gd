@@ -3,23 +3,11 @@ extends RefCounted
 ## Shared presentation helpers used only by mission screens and their demo.
 
 ## Returns a theme with pixel-sized controls and the shared screen colours.
+## Buttons take their skin from the project theme (assets/ui/ui_theme.tres).
 static func create_theme() -> Theme:
 	var result := Theme.new()
 	result.default_font_size = 14
 	result.set_color("font_color", "Label", ScreenLayout.COLOR_TEXT_LIGHT)
-	for style_name in ["normal", "hover", "pressed", "disabled", "focus"]:
-		var style := StyleBoxFlat.new()
-		style.bg_color = ScreenLayout.COLOR_PANEL_DARK_BLUE if style_name != "pressed" else ScreenLayout.COLOR_MONITOR_BLUE
-		style.border_color = ScreenLayout.COLOR_ACCENT_ORANGE if style_name == "focus" else ScreenLayout.COLOR_MONITOR_FRAME
-		style.set_border_width_all(2 if style_name == "focus" else 1)
-		style.content_margin_left = 7
-		style.content_margin_right = 7
-		style.content_margin_top = 5
-		style.content_margin_bottom = 5
-		if style_name == "disabled":
-			style.bg_color = ScreenLayout.COLOR_SPACE_BLACK
-		result.set_stylebox(style_name, "Button", style)
-	result.set_color("font_disabled_color", "Button", ScreenLayout.COLOR_LIST_GREY)
 	return result
 
 ## Creates a non-interactive background filling the 640 by 400 pixel canvas.

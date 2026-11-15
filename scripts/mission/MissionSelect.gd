@@ -11,17 +11,29 @@ extends Control
 ##   QUESTS    the 5 / 15 / 30 failure penalty once, as pips that light up as
 ##             quests are ticked; one card per quest with its grant and risk
 ## Cards show at most two lines of text; the full text is in the tooltip.
+##
+## The background is the mock-up design/mission_choice.png
+## (ScreenLayout.MISSION_SELECT_BACKGROUND_PATH): it draws the three panels,
+## the rule under each title and the boxes the first cards sit in. The
+## rectangles are in ScreenLayout, in mock-up pixels times five.
 
-const COLUMN_TOP_PIXELS := 30.0
-const COLUMN_HEIGHT_PIXELS := 322.0
-const COLUMN_WIDTH_PIXELS := 204.0
-const COLUMN_LEFTS: Array[float] = [8.0, 218.0, 428.0]
-const COLUMN_PADDING_PIXELS := 4.0
-const HEADER_HEIGHT_PIXELS := 16.0
-const QUEST_HEADER_HEIGHT_PIXELS := 30.0
-const CARD_GAP_PIXELS := 4
-const MISSION_CARD_LIST_MAXIMUM_HEIGHT_PIXELS := 102.0
-const SCHEMATIC_HEIGHT_PIXELS := 140.0
+## Gap between cards: the one-pixel gap between the mock-up's mission boxes.
+const CARD_GAP_PIXELS := 5
+## Space left under the mission boxes for the briefing.
+const BRIEFING_TOP_GAP_PIXELS := 5.0
+const SCHEMATIC_HEIGHT_PIXELS := 110.0
+## Where the title text sits in its row: just above the mock-up's rule.
+const TITLE_TOP_IN_ROW_PIXELS := 21.0
+## Budget and Accept sit at the bottom of the Quests panel.
+const BUDGET_SCREEN := Rect2(435, 314, 170, 16)
+const ACCEPT_BUTTON_SCREEN := Rect2(435, 332, 170, 33)
+## Space kept free below each scrolling list.
+const LIST_BOTTOM_GAP_PIXELS := 4.0
+## The scroll bar of a list that overflows: a 1 pixel gap and a 4 pixel bar
+## right of the cards, inside the 5 pixels between the boxes and the panel frame.
+const SCROLL_BAR_WIDTH_PIXELS := 4.0
+const SCROLL_BAR_GAP_PIXELS := 1.0
+const COLOR_SCROLL_TRACK := Color("1b2230")
 const QUEST_PENALTY_POINTS: Array[int] = [5, 15, 30]
 const QUEST_SUCCESS_POINTS := 20
 const COLOR_HEADER := Color("ffd27a")
@@ -42,39 +54,52 @@ var _briefing: Control
 var _schematic: OrbitSchematic
 var _schematic_legend: Control
 var _quest_header: Control
+## The "if all fail" pips, in the short box at the top of the Quests panel.
+var _penalty_pips: Control
 var _science_header: Control
 
 
 func _ready() -> void:
 	layout_direction = Control.LAYOUT_DIRECTION_LTR
 	theme = MissionPresentation.create_theme()
-	MissionPresentation.add_background(self)
-	var heading := MissionPresentation.add_label(self, "MISSION ASSIGNMENT", 16)
-	heading.position = Vector2(10, 6)
-	heading.size = Vector2(400, 22)
+	ScreenLayout.add_mockup_background(self, ScreenLayout.MISSION_SELECT_BACKGROUND_PATH, "MissionChoiceBackground")
 
-	_create_mission_column(_add_column(0))
-	_science_header = _add_header(_add_column(1), "SCIENCE", "pick one")
-	_details_contents = _add_card_list(_science_header.get_parent(), HEADER_HEIGHT_PIXELS)
+	var mission_column: Control = _add_column(0)
+	_add_header(mission_column, 0, "MISSION", "pick one")
+	_create_mission_column(mission_column)
+
+	var science_column: Control = _add_column(1)
+	_science_header = _add_header(science_column, 1, "SCIENCE", "pick one")
+	_details_contents = _add_card_list(science_column, ScreenLayout.MISSION_SELECT_SCIENCE_CARD_BOX,
+			ScreenLayout.MISSION_SELECT_PANEL_SCREENS[1].end.y - LIST_BOTTOM_GAP_PIXELS)
+
 	var quest_column: Control = _add_column(2)
-	_quest_header = _add_header(quest_column, "QUESTS", "optional", QUEST_HEADER_HEIGHT_PIXELS)
+	var quest_tooltip := "Each quest adds its grant to the budget. A failed quest gives the grant back. Failures cost 5, 15 or 30 points in total (not added up) for 1, 2 or 3 failed quests; the lit pip is the total if every ticked quest fails. A quest done earns 20 points."
+	_quest_header = _add_header(quest_column, 2, "QUESTS", "optional")
 	_quest_header.mouse_filter = Control.MOUSE_FILTER_STOP
-	_quest_header.tooltip_text = "Each quest adds its grant to the budget. A failed quest gives the grant back. Failures cost 5, 15 or 30 points in total (not added up) for 1, 2 or 3 failed quests; the lit pip is the total if every ticked quest fails. A quest done earns 20 points."
-	_quest_header.draw.connect(_draw_penalty_pips)
-	_quest_contents = _add_card_list(quest_column, QUEST_HEADER_HEIGHT_PIXELS)
-	_add_waiting_text(_details_contents)
-	_add_waiting_text(_quest_contents)
+	_quest_header.tooltip_text = quest_tooltip
+	_penalty_pips = Control.new()
+	_place(_penalty_pips, quest_column, ScreenLayout.MISSION_SELECT_QUEST_PENALTY_BOX)
+	_penalty_pips.tooltip_text = quest_tooltip
+	_penalty_pips.draw.connect(_draw_penalty_pips)
+	quest_column.add_child(_penalty_pips)
+	_quest_contents = _add_card_list(quest_column, ScreenLayout.MISSION_SELECT_QUEST_CARD_BOX,
+			BUDGET_SCREEN.position.y - LIST_BOTTOM_GAP_PIXELS)
+	_add_waiting_text(_details_contents, ScreenLayout.MISSION_SELECT_SCIENCE_CARD_BOX)
+	_add_waiting_text(_quest_contents, ScreenLayout.MISSION_SELECT_QUEST_CARD_BOX)
 
 	_budget_label = MissionPresentation.add_label(self, "", 12)
 	_budget_label.autowrap_mode = TextServer.AUTOWRAP_OFF
-	_budget_label.position = Vector2(12, 360)
-	_budget_label.size = Vector2(406, 30)
+	_budget_label.clip_text = true
+	_budget_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_budget_label.position = BUDGET_SCREEN.position
+	_budget_label.size = BUDGET_SCREEN.size
 	_budget_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_accept_button = Button.new()
 	_accept_button.text = "Accept mission"
 	_accept_button.tooltip_text = "Needs a mission and one science objective."
-	_accept_button.position = Vector2(426, 358)
-	_accept_button.size = Vector2(206, 34)
+	_accept_button.position = ACCEPT_BUTTON_SCREEN.position
+	_accept_button.size = ACCEPT_BUTTON_SCREEN.size
 	_accept_button.disabled = true
 	_accept_button.pressed.connect(_accept_mission)
 	add_child(_accept_button)
@@ -99,7 +124,7 @@ func _redraw_details() -> void:
 	_schematic_legend.queue_redraw()
 
 	MissionPresentation.clear_contents(_details_contents)
-	var card_width_pixels: float = _card_width_pixels()
+	var science_box: Rect2 = ScreenLayout.MISSION_SELECT_SCIENCE_CARD_BOX
 	var science_group := ButtonGroup.new()
 	science_group.allow_unpress = false
 	for science: Dictionary in _chosen_mission.get("science_missions", []):
@@ -121,14 +146,16 @@ func _redraw_details() -> void:
 		card.is_radio = true
 		card.button_group = science_group
 		card.fit_star_count = best_fit_stars
-		card.setup(science.get("name", "Science"), science.get("description", ""), chips, card_width_pixels,
+		card.setup(science.get("name", "Science"), science.get("description", ""), chips, science_box.size.x,
 				"Instruments: " + (", ".join(fit_descriptions) if not fit_descriptions.is_empty() else "none rated yet; locked."))
 		card.set_chosen_quietly(science_id == _chosen_science_id)
 		card.set_locked(fit_descriptions.is_empty())
 		card.toggled.connect(_on_science_toggled.bind(science_id))
+		_fill_box_height(card, science_box)
 		_details_contents.add_child(card)
 
 	MissionPresentation.clear_contents(_quest_contents)
+	var quest_box: Rect2 = ScreenLayout.MISSION_SELECT_QUEST_CARD_BOX
 	for quest: Dictionary in _chosen_mission.get("side_quests", []):
 		var event_names: Array[String] = []
 		for event_id: String in quest.get("related_event_type_ids", []):
@@ -144,16 +171,17 @@ func _redraw_details() -> void:
 			{"glyph": "risk", "text": risk_text, "glyph_color": PixelGlyphs.COLOR_AMBER},
 		]
 		var card := ChoiceCard.new()
-		card.setup(quest.get("name", "Quest"), quest.get("description", ""), chips, card_width_pixels,
+		card.setup(quest.get("name", "Quest"), quest.get("description", ""), chips, quest_box.size.x,
 				"Risk: %s ×%s; other events +%d%%. Done: +%d points. Failed: grant reclaimed." % [
 				", ".join(event_names), NumberFormat.compact(float(quest.get("related_multiplier", 1.0))),
 				roundi(100.0 * float(quest.get("unrelated_bonus", 0.0))), QUEST_SUCCESS_POINTS])
 		card.set_chosen_quietly(_chosen_quest_ids.has(quest.get("id", "")))
 		card.toggled.connect(_on_quest_toggled.bind(str(quest.get("id", ""))))
+		_fill_box_height(card, quest_box)
 		_quest_contents.add_child(card)
 	if _chosen_mission.get("side_quests", []).is_empty():
-		_add_waiting_text(_quest_contents, "No quests for this mission.")
-	_quest_header.queue_redraw()
+		_add_waiting_text(_quest_contents, quest_box, "No quests for this mission.")
+	_penalty_pips.queue_redraw()
 
 
 ## The index of the one penalty pip to light for this many ticked quests,
@@ -189,7 +217,7 @@ func _on_quest_toggled(is_selected: bool, quest_id: String) -> void:
 		_chosen_quest_ids.append(quest_id)
 	elif not is_selected:
 		_chosen_quest_ids.erase(quest_id)
-	_quest_header.queue_redraw()
+	_penalty_pips.queue_redraw()
 	_update_acceptance()
 
 
@@ -199,14 +227,24 @@ func _update_acceptance() -> void:
 	for quest: Dictionary in _chosen_mission.get("side_quests", []):
 		if _chosen_quest_ids.has(quest.get("id", "")):
 			grants_million_usd += float(quest.get("grant_million_usd", 0.0))
-	if _chosen_mission.is_empty():
-		_budget_label.text = "BUDGET  --"
-	elif grants_million_usd > 0.0:
-		_budget_label.text = "BUDGET  %s   = %s + %s grants" % [NumberFormat.money(base_budget_million_usd + grants_million_usd),
+	_budget_label.text = budget_text(_chosen_mission, base_budget_million_usd, grants_million_usd)
+	_budget_label.tooltip_text = ""
+	if grants_million_usd > 0.0:
+		_budget_label.tooltip_text = "Budget %s = mission %s + quest grants %s" % [
+				NumberFormat.money(base_budget_million_usd + grants_million_usd),
 				NumberFormat.money(base_budget_million_usd), NumberFormat.money(grants_million_usd)]
-	else:
-		_budget_label.text = "BUDGET  %s" % NumberFormat.money(base_budget_million_usd)
 	_accept_button.disabled = _chosen_mission.is_empty() or _chosen_science_id.is_empty()
+
+
+## The budget line under the quests: "BUDGET  $50M (+$5M grants)". It fits
+## the 170 pixel line up to a $999M budget; the sum is in the tooltip.
+static func budget_text(mission: Dictionary, base_budget_million_usd: float, grants_million_usd: float) -> String:
+	if mission.is_empty():
+		return "BUDGET  --"
+	var total_text := "BUDGET  %s" % NumberFormat.money(base_budget_million_usd + grants_million_usd)
+	if grants_million_usd > 0.0:
+		total_text += " (+%s grants)" % NumberFormat.money(grants_million_usd)
+	return total_text
 
 
 func _accept_mission() -> void:
@@ -223,8 +261,10 @@ func _chosen_science() -> Dictionary:
 	return {}
 
 
-func _card_width_pixels() -> float:
-	return COLUMN_WIDTH_PIXELS - 2.0 * COLUMN_PADDING_PIXELS - 8.0
+## Stretches a card to at least the height of the mock-up box it covers, so
+## that no part of the box shows below a short card.
+static func _fill_box_height(card: ChoiceCard, box: Rect2) -> void:
+	card.custom_minimum_size.y = maxf(card.custom_minimum_size.y, box.size.y)
 
 
 static func _band_text(zone: Dictionary) -> String:
@@ -232,67 +272,103 @@ static func _band_text(zone: Dictionary) -> String:
 			NumberFormat.kilometers(float(zone.get("outer_altitude_kilometers", 0.0)))]
 
 
-## A black monitor for one column; returns it.
+## An empty holder over the inside of one of the mock-up's panels; returns it.
+## The mock-up draws the panel, so the holder draws nothing.
 func _add_column(column_index: int) -> Control:
-	var column := Panel.new()
-	column.position = Vector2(COLUMN_LEFTS[column_index], COLUMN_TOP_PIXELS)
-	column.size = Vector2(COLUMN_WIDTH_PIXELS, COLUMN_HEIGHT_PIXELS)
-	var style := StyleBoxFlat.new()
-	style.bg_color = ScreenLayout.COLOR_SPACE_BLACK
-	style.border_color = ScreenLayout.COLOR_MONITOR_FRAME
-	style.set_border_width_all(2)
-	column.add_theme_stylebox_override("panel", style)
+	var column := Control.new()
+	var panel_screen: Rect2 = ScreenLayout.MISSION_SELECT_PANEL_SCREENS[column_index]
+	column.position = panel_screen.position
+	column.size = panel_screen.size
+	column.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(column)
 	return column
 
 
-## A drawn header: the column name and a muted note on the right.
-func _add_header(column: Control, title: String, note: String, height_pixels: float = HEADER_HEIGHT_PIXELS) -> Control:
+## Puts a child of the column on a rectangle given in screen pixels.
+static func _place(control: Control, column: Control, screen_rect: Rect2) -> void:
+	control.position = screen_rect.position - column.position
+	control.size = screen_rect.size
+
+
+## A drawn header on the panel's title row: the column name and a muted note
+## on the right, just above the mock-up's rule.
+func _add_header(column: Control, column_index: int, title: String, note: String) -> Control:
 	var header := Control.new()
-	header.position = Vector2(COLUMN_PADDING_PIXELS, 2)
-	header.size = Vector2(COLUMN_WIDTH_PIXELS - 2.0 * COLUMN_PADDING_PIXELS, height_pixels - 2.0)
+	_place(header, column, ScreenLayout.MISSION_SELECT_TITLE_ROWS[column_index])
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.draw.connect(func() -> void:
-		PixelGlyphs.draw_text(header, Vector2(0, 1), title, COLOR_HEADER, PixelGlyphs.TITLE_SIZE_PIXELS)
+		PixelGlyphs.draw_text(header, Vector2(0, TITLE_TOP_IN_ROW_PIXELS), title, COLOR_HEADER, PixelGlyphs.TITLE_SIZE_PIXELS)
 		var note_width: float = PixelGlyphs.text_width(note)
-		PixelGlyphs.draw_text(header, Vector2(header.size.x - note_width, 2), note, PixelGlyphs.COLOR_MUTED_TEXT)
-		header.draw_line(Vector2(0, 13), Vector2(header.size.x, 13), Color(COLOR_HEADER, 0.4), 1.0))
+		PixelGlyphs.draw_text(header, Vector2(header.size.x - note_width, TITLE_TOP_IN_ROW_PIXELS + 1.0), note, PixelGlyphs.COLOR_MUTED_TEXT))
 	column.add_child(header)
 	return header
 
 
-## A scrolling list of cards below a header of the given height.
-func _add_card_list(column: Control, top_pixels: float) -> VBoxContainer:
-	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(COLUMN_PADDING_PIXELS, top_pixels + 2.0)
-	scroll.size = Vector2(COLUMN_WIDTH_PIXELS - 2.0 * COLUMN_PADDING_PIXELS, COLUMN_HEIGHT_PIXELS - top_pixels - 6.0)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
+## A scrolling list of cards whose first card covers first_box (screen
+## pixels); the list runs down to bottom_pixels (screen pixels).
+func _add_card_list(column: Control, first_box: Rect2, bottom_pixels: float) -> VBoxContainer:
+	var scroll := _add_scroll(column, Rect2(first_box.position, Vector2(first_box.size.x, bottom_pixels - first_box.position.y)))
 	var contents := VBoxContainer.new()
-	contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	contents.add_theme_constant_override("separation", CARD_GAP_PIXELS)
 	scroll.add_child(contents)
 	return contents
 
 
-func _add_waiting_text(contents: Control, text: String = "Pick a mission first.") -> void:
+## A vertical scroll list whose cards cover cards_screen (screen pixels). The
+## scroll area is wider by the scroll bar, so a bar never covers a card and
+## stays inside the panel frame.
+func _add_scroll(column: Control, cards_screen: Rect2) -> ScrollContainer:
+	var scroll := ScrollContainer.new()
+	_place(scroll, column, Rect2(cards_screen.position,
+			cards_screen.size + Vector2(SCROLL_BAR_GAP_PIXELS + SCROLL_BAR_WIDTH_PIXELS, 0)))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_style_scroll_bar(scroll.get_v_scroll_bar())
+	column.add_child(scroll)
+	return scroll
+
+
+## A plain 4 pixel bar: a dark track and a light grabber, no arrow buttons.
+static func _style_scroll_bar(bar: VScrollBar) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = COLOR_SCROLL_TRACK
+	track.content_margin_left = SCROLL_BAR_WIDTH_PIXELS * 0.5
+	track.content_margin_right = SCROLL_BAR_WIDTH_PIXELS * 0.5
+	bar.add_theme_stylebox_override("scroll", track)
+	bar.add_theme_stylebox_override("scroll_focus", track)
+	for state_name in ["grabber", "grabber_highlight", "grabber_pressed"]:
+		var grabber := StyleBoxFlat.new()
+		grabber.bg_color = ScreenLayout.COLOR_MONITOR_GRID_LINE if state_name == "grabber" else ScreenLayout.COLOR_TEXT_LIGHT
+		grabber.content_margin_left = SCROLL_BAR_WIDTH_PIXELS * 0.5
+		grabber.content_margin_right = SCROLL_BAR_WIDTH_PIXELS * 0.5
+		grabber.content_margin_top = 4
+		grabber.content_margin_bottom = 4
+		bar.add_theme_stylebox_override(state_name, grabber)
+	var no_icon := ImageTexture.create_from_image(Image.create(1, 1, false, Image.FORMAT_RGBA8))
+	for icon_name in ["increment", "increment_highlight", "increment_pressed", "decrement", "decrement_highlight", "decrement_pressed"]:
+		bar.add_theme_icon_override(icon_name, no_icon)
+	bar.custom_minimum_size.x = SCROLL_BAR_WIDTH_PIXELS
+
+
+## Muted text centred in the (still empty) first box of a list.
+func _add_waiting_text(contents: Control, box: Rect2, text: String = "Pick a mission first.") -> void:
 	var waiting := MissionPresentation.add_label(contents, text, 8)
 	waiting.add_theme_color_override("font_color", PixelGlyphs.COLOR_MUTED_TEXT)
+	waiting.custom_minimum_size = box.size
+	waiting.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	waiting.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 
+## The mission cards in the mock-up's mission boxes, then the briefing, the
+## orbit schematic and its key down to the bottom of the panel.
 func _create_mission_column(column: Control) -> void:
-	_add_header(column, "MISSION", "pick one")
-	var scroll := ScrollContainer.new()
-	scroll.position = Vector2(COLUMN_PADDING_PIXELS, HEADER_HEIGHT_PIXELS + 2.0)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	column.add_child(scroll)
+	var boxes: Array[Rect2] = ScreenLayout.MISSION_SELECT_MISSION_CARD_BOXES
+	var list_screen := Rect2(boxes[0].position, Vector2(boxes[0].size.x, boxes[boxes.size() - 1].end.y - boxes[0].position.y))
+	var scroll := _add_scroll(column, list_screen)
 	_mission_contents = VBoxContainer.new()
-	_mission_contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_mission_contents.add_theme_constant_override("separation", CARD_GAP_PIXELS)
 	scroll.add_child(_mission_contents)
 	var mission_group := ButtonGroup.new()
 	mission_group.allow_unpress = false
-	var list_height_pixels := 0.0
 	for mission in GameData.all_missions():
 		var card := ChoiceCard.new()
 		card.is_radio = true
@@ -303,34 +379,33 @@ func _create_mission_column(column: Control) -> void:
 			{"glyph": "target", "text": NumberFormat.kilometers(float(mission.get("target", {}).get("altitude_kilometers", 0.0))),
 				"glyph_color": PixelGlyphs.COLOR_GOOD_GREEN},
 		]
-		card.setup(mission.get("name", "Mission"), "", chips, _card_width_pixels(), PixelGlyphs.without_placeholder_prefix(mission.get("briefing", "")))
+		card.setup(mission.get("name", "Mission"), "", chips, boxes[0].size.x, PixelGlyphs.without_placeholder_prefix(mission.get("briefing", "")))
+		_fill_box_height(card, boxes[0])
 		card.pressed.connect(_on_mission_chosen.bind(mission))
 		_mission_contents.add_child(card)
 		_mission_buttons.append(card)
-		list_height_pixels += card.custom_minimum_size.y + CARD_GAP_PIXELS
-	var shown_list_height_pixels: float = minf(list_height_pixels, MISSION_CARD_LIST_MAXIMUM_HEIGHT_PIXELS)
-	scroll.size = Vector2(COLUMN_WIDTH_PIXELS - 2.0 * COLUMN_PADDING_PIXELS, shown_list_height_pixels)
-	var next_top: float = scroll.position.y + shown_list_height_pixels + 1.0
+
+	var panel_screen: Rect2 = ScreenLayout.MISSION_SELECT_PANEL_SCREENS[0]
+	var content_left: float = list_screen.position.x
+	var content_width: float = list_screen.size.x
+	var next_top: float = list_screen.end.y + BRIEFING_TOP_GAP_PIXELS
 
 	_briefing = Control.new()
-	_briefing.position = Vector2(COLUMN_PADDING_PIXELS, next_top)
-	_briefing.size = Vector2(COLUMN_WIDTH_PIXELS - 2.0 * COLUMN_PADDING_PIXELS, 2.0 * PixelGlyphs.LINE_HEIGHT_PIXELS + 2.0)
+	_place(_briefing, column, Rect2(content_left, next_top, content_width, 2.0 * PixelGlyphs.LINE_HEIGHT_PIXELS + 2.0))
 	_briefing.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_briefing.draw.connect(_draw_briefing)
 	column.add_child(_briefing)
 	next_top += _briefing.size.y + 2.0
 
 	_schematic = OrbitSchematic.new()
-	_schematic.position = Vector2(COLUMN_PADDING_PIXELS, next_top)
-	_schematic.size = Vector2(COLUMN_WIDTH_PIXELS - 2.0 * COLUMN_PADDING_PIXELS, SCHEMATIC_HEIGHT_PIXELS)
+	_place(_schematic, column, Rect2(content_left, next_top, content_width, SCHEMATIC_HEIGHT_PIXELS))
 	_schematic.clip_contents = true
 	_schematic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	column.add_child(_schematic)
 	next_top += SCHEMATIC_HEIGHT_PIXELS + 2.0
 
 	_schematic_legend = Control.new()
-	_schematic_legend.position = Vector2(COLUMN_PADDING_PIXELS, next_top)
-	_schematic_legend.size = Vector2(COLUMN_WIDTH_PIXELS - 2.0 * COLUMN_PADDING_PIXELS, COLUMN_HEIGHT_PIXELS - next_top - 3.0)
+	_place(_schematic_legend, column, Rect2(content_left, next_top, content_width, panel_screen.end.y - next_top - 3.0))
 	_schematic_legend.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_schematic_legend.clip_contents = true
 	_schematic_legend.draw.connect(_draw_schematic_legend)
@@ -364,11 +439,19 @@ func _draw_schematic_legend() -> void:
 	if not science.is_empty():
 		PixelGlyphs.draw_chip(_schematic_legend, Vector2(0, row_top), "band", "science %s" % _band_text(science.get("zone", {})), COLOR_BAND_GLYPH)
 		row_top += 10.0
+	# Room for the zone text: the row less the hazard glyph and the badge.
+	var text_room: float = (_schematic_legend.size.x - PixelGlyphs.chip_width("hazard", "")
+			- 4.0 - PixelGlyphs.placeholder_badge_width())
 	for zone: Dictionary in _chosen_mission.get("hazard_zones", []):
-		var zone_text := "%s %s" % [str(zone.get("name", "hazard")).to_lower(), _band_text(zone)]
+		var zone_name := str(zone.get("name", "hazard")).to_lower()
+		var zone_text := "%s %s" % [zone_name, _band_text(zone)]
 		if _schematic.is_beyond_diagram(zone):
-			zone_text = "%s >%s, off chart" % [str(zone.get("name", "hazard")).to_lower(),
-					NumberFormat.kilometers(float(zone.get("inner_altitude_kilometers", 0.0)))]
+			var inner_text := NumberFormat.kilometers(float(zone.get("inner_altitude_kilometers", 0.0)))
+			zone_text = "%s >%s, off chart" % [zone_name, inner_text]
+			# ">" already says the zone is above the chart; drop the words when they do not fit.
+			if PixelGlyphs.text_width(zone_text) > text_room:
+				zone_text = "%s >%s" % [zone_name, inner_text]
+		zone_text = PixelGlyphs.fit_to_width(zone_text, text_room)
 		var used_width: float = PixelGlyphs.draw_chip(_schematic_legend, Vector2(0, row_top), "hazard",
 				zone_text, ScreenLayout.COLOR_WARNING_RED)
 		PixelGlyphs.draw_placeholder_badge(_schematic_legend, Vector2(used_width + 4.0, row_top))
@@ -380,17 +463,25 @@ func _draw_schematic_legend() -> void:
 ## number of quests ticked is lit (filled amber, dark number); the others are
 ## outlines with a grey number.
 func _draw_penalty_pips() -> void:
-	var row_top := 16.0
-	var next_left: float = PixelGlyphs.draw_text(_quest_header, Vector2(0, row_top), "if all fail", PixelGlyphs.COLOR_MUTED_TEXT) + 4.0
-	for penalty_index in QUEST_PENALTY_POINTS.size():
-		var penalty_text := "−%d" % QUEST_PENALTY_POINTS[penalty_index]
-		var pip_rect := Rect2(Vector2(next_left, row_top), Vector2(PixelGlyphs.text_width(penalty_text) + 6.0, 10.0))
+	var pips := _penalty_pips
+	var row_height := 10.0
+	var row_top: float = floorf((pips.size.y - row_height) / 2.0)
+	var pip_texts: Array[String] = []
+	var row_width: float = PixelGlyphs.text_width("if all fail") + 4.0 + 1.0 + PixelGlyphs.text_width("pts")
+	for penalty_points in QUEST_PENALTY_POINTS:
+		pip_texts.append("−%d" % penalty_points)
+		row_width += PixelGlyphs.text_width(pip_texts[-1]) + 6.0 + 3.0
+	var next_left: float = floorf((pips.size.x - row_width) / 2.0)
+	next_left += PixelGlyphs.draw_text(pips, Vector2(next_left, row_top), "if all fail", PixelGlyphs.COLOR_MUTED_TEXT) + 4.0
+	for penalty_index in pip_texts.size():
+		var penalty_text: String = pip_texts[penalty_index]
+		var pip_rect := Rect2(Vector2(next_left, row_top), Vector2(PixelGlyphs.text_width(penalty_text) + 6.0, row_height))
 		var is_lit: bool = penalty_index == lit_penalty_pip_index(_chosen_quest_ids.size())
 		if is_lit:
-			_quest_header.draw_rect(pip_rect, PixelGlyphs.COLOR_AMBER)
-			PixelGlyphs.draw_text(_quest_header, pip_rect.position + Vector2(3, 0), penalty_text, PixelGlyphs.COLOR_OUTLINE)
+			pips.draw_rect(pip_rect, PixelGlyphs.COLOR_AMBER)
+			PixelGlyphs.draw_text(pips, pip_rect.position + Vector2(3, 0), penalty_text, PixelGlyphs.COLOR_OUTLINE)
 		else:
-			_quest_header.draw_rect(pip_rect.grow(-0.5), COLOR_PIP_OFF, false, 1.0)
-			PixelGlyphs.draw_text(_quest_header, pip_rect.position + Vector2(3, 0), penalty_text, COLOR_PIP_OFF)
+			pips.draw_rect(pip_rect.grow(-0.5), COLOR_PIP_OFF, false, 1.0)
+			PixelGlyphs.draw_text(pips, pip_rect.position + Vector2(3, 0), penalty_text, COLOR_PIP_OFF)
 		next_left = pip_rect.end.x + 3.0
-	PixelGlyphs.draw_text(_quest_header, Vector2(next_left + 1.0, row_top), "pts", PixelGlyphs.COLOR_MUTED_TEXT)
+	PixelGlyphs.draw_text(pips, Vector2(next_left + 1.0, row_top), "pts", PixelGlyphs.COLOR_MUTED_TEXT)

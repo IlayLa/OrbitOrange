@@ -64,13 +64,7 @@ func refresh_objectives() -> void:
 
 
 func _create_background() -> void:
-	var background := TextureRect.new()
-	background.texture = load(ExecutionLayout.BACKGROUND_PATH)
-	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.size = ScreenLayout.SCREEN_SIZE
-	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(background)
+	ScreenLayout.add_mockup_background(self, ExecutionLayout.BACKGROUND_PATH)
 
 
 func _create_panels() -> void:

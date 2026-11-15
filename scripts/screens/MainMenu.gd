@@ -2,6 +2,9 @@ extends Control
 ## The first screen: logo, title and a button that starts a new game.
 ## Owned by the integrator.
 
+## Both menu buttons share one size, so they read as one list.
+const MENU_BUTTON_SIZE := Vector2(150, 30)
+const MENU_BUTTON_GAP_PIXELS := 8.0
 
 func _ready() -> void:
 	var background := ColorRect.new()
@@ -27,7 +30,7 @@ func _ready() -> void:
 	var start_button := Button.new()
 	start_button.text = "Start new game"
 	start_button.position = Vector2(245, 290)
-	start_button.size = Vector2(150, 36)
+	start_button.size = MENU_BUTTON_SIZE
 	start_button.pressed.connect(_on_start_new_game_pressed)
 	add_child(start_button)
 
@@ -36,8 +39,8 @@ func _ready() -> void:
 	var codex := DataSourcesCodex.new()
 	var sources_button := Button.new()
 	sources_button.text = "Data sources"
-	sources_button.position = Vector2(245, 334)
-	sources_button.size = Vector2(150, 26)
+	sources_button.position = start_button.position + Vector2(0, MENU_BUTTON_SIZE.y + MENU_BUTTON_GAP_PIXELS)
+	sources_button.size = MENU_BUTTON_SIZE
 	sources_button.pressed.connect(codex.open_at)
 	add_child(sources_button)
 	add_child(codex)

@@ -9,7 +9,7 @@ const TITLE_FONT_SIZE_PIXELS := 8
 const VALUE_FONT_SIZE_PIXELS := 10
 const DETAIL_FONT_SIZE_PIXELS := 8
 ## Tops of the three lines of a chip. Together they fit the lowest chip (38 pixels).
-const TITLE_LINE_TOP_PIXELS := -1.0
+const TITLE_LINE_TOP_PIXELS := 0.0
 const VALUE_LINE_TOP_PIXELS := 9.0
 const DETAIL_LINE_TOP_PIXELS := 22.0
 const TITLE_LINE_HEIGHT_PIXELS := 11.0

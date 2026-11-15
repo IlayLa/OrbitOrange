@@ -40,6 +40,9 @@ func _ready() -> void:
 	red_style.set_content_margin_all(2)
 	for style_name in ["normal", "hover", "pressed"]:
 		_button.add_theme_stylebox_override(style_name, red_style)
+	# Deliberately not the project button skin: keep light text on the red button.
+	for color_name in ["font_color", "font_hover_color", "font_pressed_color"]:
+		_button.add_theme_color_override(color_name, ScreenLayout.COLOR_TEXT_LIGHT)
 	_button.pressed.connect(press)
 	add_child(_button)
 	# Keep the whole button on screen even when its text needs more room.

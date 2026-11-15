@@ -18,7 +18,9 @@ var time_scales: Array[float] = []
 var _mission_time_label: Label
 var _next_pulse_label: Label
 var _time_scale_buttons: Array[Button] = []
-var _highlight_style: StyleBoxFlat
+## Holds the time-control buttons, so at most one is pressed: the skin's
+## pressed frame (green in design/buttons.png) marks the chosen time scale.
+var _time_scale_group := ButtonGroup.new()
 
 
 func _ready() -> void:
@@ -40,19 +42,13 @@ func show_frame(frame: TelemetryFrame) -> void:
 ## Highlights the button of the given time scale and clears the others.
 func highlight_time_scale(time_scale: float) -> void:
 	for button_index in _time_scale_buttons.size():
-		var button := _time_scale_buttons[button_index]
-		if time_scales[button_index] == time_scale:
-			button.add_theme_stylebox_override("normal", _highlight_style)
-			button.add_theme_stylebox_override("hover", _highlight_style)
-		else:
-			button.remove_theme_stylebox_override("normal")
-			button.remove_theme_stylebox_override("hover")
+		_time_scale_buttons[button_index].set_pressed_no_signal(time_scales[button_index] == time_scale)
 
 
 ## Returns the time scale whose button is highlighted, or -1 when none is.
 func highlighted_time_scale() -> float:
 	for button_index in _time_scale_buttons.size():
-		if _time_scale_buttons[button_index].has_theme_stylebox_override("normal"):
+		if _time_scale_buttons[button_index].button_pressed:
 			return time_scales[button_index]
 	return -1.0
 
@@ -68,11 +64,6 @@ func clock_text() -> String:
 
 
 func _create_time_scale_buttons() -> void:
-	_highlight_style = StyleBoxFlat.new()
-	_highlight_style.bg_color = ScreenLayout.COLOR_ACCENT_ORANGE
-	_highlight_style.border_color = ScreenLayout.COLOR_TEXT_LIGHT
-	_highlight_style.set_border_width_all(1)
-
 	var controls_rect := ExecutionLayout.TIME_CONTROLS_RECT
 	var button_count := time_scales.size()
 	if button_count == 0:
@@ -84,6 +75,8 @@ func _create_time_scale_buttons() -> void:
 		button.text = ReadingFormat.time_scale_label(time_scale)
 		button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE)
 		button.focus_mode = Control.FOCUS_NONE
+		button.toggle_mode = true
+		button.button_group = _time_scale_group
 		button.position = controls_rect.position + Vector2(
 				scale_index * (button_width_pixels + BUTTON_GAP_PIXELS), 0)
 		button.size = Vector2(button_width_pixels, controls_rect.size.y)
