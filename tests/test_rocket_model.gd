@@ -161,7 +161,7 @@ func _check_solid_motor(report: TestReport) -> void:
 			unfired_state.propellant_kilograms_by_stage[1], 500.0, 0.000001,
 			"a solid motor asked for nothing keeps its propellant")
 
-	var no_direction_plan := MissionPlan.new()
+	var no_direction_plan := MissionPlan.legacy_plan()
 	no_direction_plan.pulses.append(_pulse(1, 0.0))
 	var no_direction_summary: PlanSummary = RocketModel.summarize_plan(design, no_direction_plan, 0.0)
 	report.check(
@@ -175,7 +175,7 @@ func _check_solid_motor(report: TestReport) -> void:
 
 func _check_liquid_engine_limits(report: TestReport) -> void:
 	var design: RocketDesign = _two_stage_design()
-	var plan := MissionPlan.new()
+	var plan := MissionPlan.legacy_plan()
 	plan.launch_stage_ids.append(1)
 	plan.pulses.append(_pulse(2, 100.0))
 	plan.pulses.append(_pulse(2, 99999.0))
@@ -225,7 +225,7 @@ func _check_broken_and_weakened_stages(report: TestReport) -> void:
 
 func _check_plan_summary(report: TestReport) -> void:
 	var design: RocketDesign = _two_stage_design()
-	var plan := MissionPlan.new()
+	var plan := MissionPlan.legacy_plan()
 	plan.launch_stage_ids.append(1)
 	plan.pulses.append(_pulse(2, 100.0))
 	var stage_one_delta_v: float = 300.0 * STANDARD_GRAVITY * log(2500.0 / 1500.0)
@@ -253,13 +253,13 @@ func _check_plan_summary(report: TestReport) -> void:
 	var huge_loss_summary: PlanSummary = RocketModel.summarize_plan(design, plan, 99999.0)
 	report.check(huge_loss_summary.burnout_speed_meters_per_second == 0.0, "burnout speed is never below zero")
 
-	var no_launch_summary: PlanSummary = RocketModel.summarize_plan(design, MissionPlan.new(), 500.0)
+	var no_launch_summary: PlanSummary = RocketModel.summarize_plan(design, MissionPlan.legacy_plan(), 500.0)
 	report.check(
 			no_launch_summary.warnings.has("No stage fires at launch."),
 			"a plan without a launch stage is reported")
 
 	# Upper stage listed first: it drops stage 1, which then cannot fire.
-	var upside_down_plan := MissionPlan.new()
+	var upside_down_plan := MissionPlan.legacy_plan()
 	upside_down_plan.launch_stage_ids.append(2)
 	upside_down_plan.launch_stage_ids.append(1)
 	var upside_down_summary: PlanSummary = RocketModel.summarize_plan(design, upside_down_plan, 0.0)
@@ -269,7 +269,7 @@ func _check_plan_summary(report: TestReport) -> void:
 			and upside_down_summary.warnings[0].contains("Stage 1"),
 			"a launch stage that is dropped before it fires is reported as a warning")
 
-	var unknown_launch_plan := MissionPlan.new()
+	var unknown_launch_plan := MissionPlan.legacy_plan()
 	unknown_launch_plan.launch_stage_ids.append(1)
 	unknown_launch_plan.launch_stage_ids.append(99)
 	var unknown_launch_summary: PlanSummary = RocketModel.summarize_plan(design, unknown_launch_plan, 0.0)
@@ -301,7 +301,7 @@ func _check_validation(report: TestReport) -> void:
 
 	var weak_design := RocketDesign.new()
 	var weak_stage: Stage = weak_design.add_stage("test_engine_weak", "test_tank")
-	var weak_plan := MissionPlan.new()
+	var weak_plan := MissionPlan.legacy_plan()
 	weak_plan.launch_stage_ids.append(weak_stage.stage_id)
 	var weak_summary: PlanSummary = RocketModel.summarize_plan(weak_design, weak_plan, 0.0)
 	var weak_warnings: Array[String] = weak_summary.warnings
@@ -320,7 +320,7 @@ func _check_validation(report: TestReport) -> void:
 	var weak_bottom_design := RocketDesign.new()
 	weak_bottom_design.add_stage("test_engine_weak", "test_tank")
 	var strong_upper_stage: Stage = weak_bottom_design.add_stage("test_engine_liquid", "test_tank")
-	var upper_first_plan := MissionPlan.new()
+	var upper_first_plan := MissionPlan.legacy_plan()
 	upper_first_plan.launch_stage_ids.append(strong_upper_stage.stage_id)
 	report.check(
 			RocketModel.summarize_plan(weak_bottom_design, upper_first_plan, 0.0).warnings.is_empty(),
@@ -328,7 +328,7 @@ func _check_validation(report: TestReport) -> void:
 
 	var engineless_design := RocketDesign.new()
 	var engineless_stage: Stage = engineless_design.add_stage("", "test_tank")
-	var engineless_plan := MissionPlan.new()
+	var engineless_plan := MissionPlan.legacy_plan()
 	engineless_plan.launch_stage_ids.append(engineless_stage.stage_id)
 	var engineless_warnings: Array[String] = RocketModel.summarize_plan(engineless_design, engineless_plan, 0.0).warnings
 	report.check(
@@ -403,7 +403,7 @@ func _check_balance(report: TestReport) -> void:
 	var upper_stage: Stage = good_design.add_stage("engine_liquid_small", "tank_aluminium_blowdown")
 	good_design.payload_part_ids.append("science_camera_basic")
 	good_design.payload_part_ids.append("telemetry_altimeter_basic")
-	var good_plan := MissionPlan.new()
+	var good_plan := MissionPlan.legacy_plan()
 	good_plan.launch_stage_ids.append(booster_stage.stage_id)
 	var launch_summary: PlanSummary = RocketModel.summarize_plan(good_design, good_plan, launch_loss_meters_per_second)
 	var burnout_speed: float = launch_summary.burnout_speed_meters_per_second
@@ -429,7 +429,7 @@ func _check_balance(report: TestReport) -> void:
 	var cheap_design := RocketDesign.new()
 	var solid_stage: Stage = cheap_design.add_stage("engine_solid_basic")
 	cheap_design.payload_part_ids.append("science_camera_basic")
-	var cheap_plan := MissionPlan.new()
+	var cheap_plan := MissionPlan.legacy_plan()
 	cheap_plan.launch_stage_ids.append(solid_stage.stage_id)
 	var cheap_summary: PlanSummary = RocketModel.summarize_plan(cheap_design, cheap_plan, launch_loss_meters_per_second)
 	report.check(
@@ -443,7 +443,7 @@ func _check_balance(report: TestReport) -> void:
 	var skeleton_design := RocketDesign.new()
 	var only_stage: Stage = skeleton_design.add_stage("engine_liquid_basic", "tank_aluminium_basic")
 	skeleton_design.payload_part_ids.append("science_camera_basic")
-	var skeleton_plan := MissionPlan.new()
+	var skeleton_plan := MissionPlan.legacy_plan()
 	skeleton_plan.launch_stage_ids.append(only_stage.stage_id)
 	report.check(
 			RocketModel.summarize_plan(skeleton_design, skeleton_plan, launch_loss_meters_per_second)

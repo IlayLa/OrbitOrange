@@ -50,7 +50,7 @@ func _check_example_flight_setup(report: TestReport) -> void:
 	var mission: Dictionary = GameData.mission(MISSION_ID)
 	var body: Dictionary = GameData.body(mission["body_id"])
 	var design := RocketDesign.new()
-	var plan := MissionPlan.new()
+	var plan := MissionPlan.legacy_plan()
 	ExampleFlight.fill_reference_flight(design, plan, mission)
 	report.check(design.stages.size() == 2, "the example rocket has two stages")
 	report.check(design.payload_part_ids.size() == 2, "the example rocket carries a camera and an altimeter")
@@ -78,7 +78,7 @@ func _check_winning_flight(report: TestReport) -> void:
 	var body: Dictionary = GameData.body(mission["body_id"])
 	var gravitational_parameter: float = body[OrbitModel.GRAVITATIONAL_PARAMETER_KEY]
 	var design := RocketDesign.new()
-	var plan := MissionPlan.new()
+	var plan := MissionPlan.legacy_plan()
 	ExampleFlight.fill_reference_flight(design, plan, mission)
 	GameState.design = design
 	GameState.plan = plan
@@ -143,7 +143,7 @@ func _check_failing_flight(report: TestReport) -> void:
 	var design := RocketDesign.new()
 	var solid_stage: Stage = design.add_stage(SOLID_ENGINE_PART_ID)
 	design.payload_part_ids.append(CAMERA_PART_ID)
-	var plan := MissionPlan.new()
+	var plan := MissionPlan.legacy_plan()
 	plan.launch_stage_ids.append(solid_stage.stage_id)
 	plan.launch_angle_radians = deg_to_rad(30.0)
 	GameState.design = design

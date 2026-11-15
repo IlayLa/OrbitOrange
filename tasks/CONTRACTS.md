@@ -188,3 +188,21 @@ The hackathon rules require a record of AI use and of every external resource. E
 - `tasks/notes/T0N.md`: what is done, what is not, deviations from the task file, new functions, contract requests.
 
 A task is not finished until all three exist.
+
+## 10. Automatic planning revision (T05, user-approved 2026-11-15)
+
+This section supersedes manual launch selection and explicit pulse-stage assignment for normal gameplay. Original manual helpers remain available only through MissionPlan.PlanningMode.LEGACY_MANUAL; MissionPlan.legacy_plan() creates that explicit compatibility mode.
+
+- MissionPlan defaults to AUTOMATIC and a 30-degree burnout angle. launch_stage_ids and Pulse.stage_id remain legacy data; screens do not select pulse engines in automatic mode.
+- SequentialPropulsion is mass-only, using RocketModel's unchanged primitives. It consumes the lowest attached stage, separates it at exhaustion, and continues a demand through successors. Failed attached stages block upper-stage ignition.
+- A pulse beginning on a solid burns one complete motor, direction only. A liquid demand can cross into a solid; if demand remains at ignition, that solid burns fully and may overshoot. All contributions share the same pre-pulse inertial thrust direction.
+- AscentPlanner returns AscentResult: departure and insertion allocations, actual trajectory/entry state, remaining vehicle, per-stage ascent usage, and failure explanations. Initial thrust must exceed initial weight to report successful lift-off. Thrust failure is a predicted launch failure, not an additional structural Launch-button blocker.
+- Departure geometry targets the mission altitude at apoapsis, followed by circularizing insertion. Solid overshoot is propagated honestly. The existing fixed loss allowance, spherical two-body model and impact boundary are retained.
+- All liquid engines are assumed restartable without limits. Manoeuvres remain instantaneous. Departure duration is the pre-coast launch readout; later burn durations are readouts without delaying their impulsive state changes.
+- PlanResolver resolves automatic manual pulses chronologically, checking reachability before burning fuel. Pulses blocked by an earlier unreachable pulse consume nothing. PlanSummary arrays retain original manual indices.
+- PlanSummary.ascent and pulse_allocations expose detailed BurnAllocation objects. mass_after_ascent_kilograms and mass_after_pulse_kilograms are separate from launch/design wet_mass_kilograms and dry_mass_kilograms.
+- Separating a spent stage removes engine/tank dry mass after the propulsive mass ratio is evaluated. Separation alone supplies no delta-v.
+- TrajectorySegment.source_stage_id and is_automatic_ascent are optional rendering metadata. Automatic burns use no player-pulse indices.
+- Flight execution uses the same allocator against live vehicle state. pulse_fired remains one aggregate event per player/emergency pulse; automatic manoeuvres and contributing stages are logged separately.
+- OrbitView keeps its seven existing functions and adds show_ghosts, pick_path and stage_color. Display scales are specified at ORBIT_PLANNING_VIEW_SCREEN size and scale proportionally at other widget sizes. Callers should pass the full mission rather than pre-shrinking its display scale.
+- T06 owns stat chips/back/zoom. T05 owns only the detailed view and editor. Manual pulse placement during the climb is outside this revision.
