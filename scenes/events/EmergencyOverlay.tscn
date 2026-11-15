@@ -1,0 +1,330 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/events/EmergencyOverlay.gd" id="1_overlay"]
+[ext_resource type="Script" path="res://scripts/orbit/OrbitView.gd" id="2_map"]
+
+[sub_resource type="StyleBoxFlat" id="Style_panel"]
+bg_color = Color(0.047, 0.071, 0.104, 1)
+border_width_left = 1
+border_width_top = 2
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.75, 0.32, 0.19, 1)
+
+[sub_resource type="StyleBoxFlat" id="Style_control"]
+content_margin_left = 7.0
+content_margin_right = 7.0
+bg_color = Color(0.13, 0.185, 0.247, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.32, 0.42, 0.53, 1)
+
+[sub_resource type="StyleBoxFlat" id="Style_hover"]
+content_margin_left = 7.0
+content_margin_right = 7.0
+bg_color = Color(0.22, 0.31, 0.40, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.45, 0.59, 0.68, 1)
+
+[sub_resource type="StyleBoxFlat" id="Style_focus"]
+draw_center = false
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(1, 0.77, 0.52, 1)
+
+[sub_resource type="StyleBoxFlat" id="Style_execute"]
+bg_color = Color(0.64, 0.92, 0.83, 1)
+
+[sub_resource type="StyleBoxFlat" id="Style_execute_hover"]
+bg_color = Color(0.79, 1, 0.93, 1)
+
+[sub_resource type="Theme" id="Theme_overlay"]
+default_font_size = 14
+Label/colors/font_color = Color(0.89, 0.93, 0.97, 1)
+Button/styles/focus = SubResource("Style_focus")
+Button/styles/hover = SubResource("Style_hover")
+Button/styles/normal = SubResource("Style_control")
+Button/styles/pressed = SubResource("Style_hover")
+OptionButton/styles/focus = SubResource("Style_focus")
+OptionButton/styles/hover = SubResource("Style_hover")
+OptionButton/styles/normal = SubResource("Style_control")
+OptionButton/styles/pressed = SubResource("Style_hover")
+LineEdit/styles/focus = SubResource("Style_focus")
+LineEdit/styles/normal = SubResource("Style_control")
+
+[node name="EmergencyOverlay" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = SubResource("Theme_overlay")
+script = ExtResource("1_overlay")
+
+[node name="Scrim" type="ColorRect" parent="."]
+layout_mode = 0
+offset_bottom = 400.0
+offset_right = 640.0
+mouse_filter = 2
+color = Color(0.02, 0.03, 0.05, 0.66)
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 38.0
+offset_right = 630.0
+offset_bottom = 390.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("Style_panel")
+
+[node name="OrbitMap" type="Control" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 12.0
+offset_top = 49.0
+offset_right = 365.0
+offset_bottom = 290.0
+mouse_filter = 2
+clip_contents = true
+script = ExtResource("2_map")
+
+[node name="Tracks" type="Control" parent="Panel/OrbitMap"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_default_cursor_shape = 2
+
+[node name="Title" type="Label" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 12.0
+offset_top = 10.0
+offset_right = 365.0
+offset_bottom = 41.0
+theme_override_font_sizes/font_size = 22
+
+[node name="Paused" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 504.0
+offset_top = 14.0
+offset_right = 608.0
+offset_bottom = 38.0
+theme_override_colors/font_color = Color(1, 0.76, 0.52, 1)
+theme_override_font_sizes/font_size = 13
+text = "FLIGHT PAUSED"
+horizontal_alignment = 2
+
+[node name="Divider" type="ColorRect" parent="Panel"]
+layout_mode = 0
+offset_left = 375.0
+offset_top = 51.0
+offset_right = 376.0
+offset_bottom = 339.0
+mouse_filter = 2
+color = Color(0.25, 0.33, 0.41, 1)
+
+[node name="CurrentKey" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 13.0
+offset_top = 296.0
+offset_right = 104.0
+offset_bottom = 315.0
+theme_override_font_sizes/font_size = 13
+text = "Current orbit"
+
+[node name="ThreatKey" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 114.0
+offset_top = 296.0
+offset_right = 170.0
+offset_bottom = 315.0
+theme_override_colors/font_color = Color(1, 0.50, 0.41, 1)
+theme_override_font_sizes/font_size = 13
+text = "Object"
+
+[node name="CandidateKey" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 182.0
+offset_top = 296.0
+offset_right = 365.0
+offset_bottom = 315.0
+theme_override_colors/font_color = Color(0.41, 0.89, 0.77, 1)
+theme_override_font_sizes/font_size = 13
+text = "Coast after this maneuver"
+
+[node name="DragHelp" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 13.0
+offset_top = 322.0
+offset_right = 365.0
+offset_bottom = 342.0
+theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
+theme_override_font_sizes/font_size = 13
+text = "Drag from the craft to set the maneuver."
+
+[node name="Approach" type="Label" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 49.0
+offset_right = 608.0
+offset_bottom = 69.0
+theme_override_font_sizes/font_size = 14
+
+[node name="CurrentMiss" type="Label" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 69.0
+offset_right = 608.0
+offset_bottom = 89.0
+theme_override_font_sizes/font_size = 14
+
+[node name="CandidateMiss" type="Label" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 89.0
+offset_right = 608.0
+offset_bottom = 109.0
+theme_override_font_sizes/font_size = 14
+
+[node name="Threshold" type="Label" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 109.0
+offset_right = 608.0
+offset_bottom = 129.0
+theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
+theme_override_font_sizes/font_size = 13
+
+[node name="StageLabel" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 388.0
+offset_top = 137.0
+offset_right = 608.0
+offset_bottom = 157.0
+theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
+theme_override_font_sizes/font_size = 13
+text = "Firing stage"
+
+[node name="Stage" type="OptionButton" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 157.0
+offset_right = 608.0
+offset_bottom = 185.0
+fit_to_longest_item = false
+
+[node name="StageWarning" type="Label" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 186.0
+offset_right = 608.0
+offset_bottom = 204.0
+theme_override_colors/font_color = Color(1, 0.76, 0.52, 1)
+theme_override_font_sizes/font_size = 12
+text_overrun_behavior = 3
+
+[node name="AngleLabel" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 388.0
+offset_top = 207.0
+offset_right = 484.0
+offset_bottom = 227.0
+theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
+theme_override_font_sizes/font_size = 13
+text = "Angle (°)"
+
+[node name="StrengthLabel" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 492.0
+offset_top = 207.0
+offset_right = 608.0
+offset_bottom = 227.0
+theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
+theme_override_font_sizes/font_size = 13
+text = "Strength (m/s)"
+
+[node name="Angle" type="SpinBox" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 228.0
+offset_right = 484.0
+offset_bottom = 254.0
+min_value = -180.0
+max_value = 180.0
+step = 1.0
+
+[node name="Strength" type="SpinBox" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 492.0
+offset_top = 228.0
+offset_right = 608.0
+offset_bottom = 254.0
+max_value = 10000.0
+step = 0.01
+
+[node name="AngleHelp" type="Label" parent="Panel"]
+layout_mode = 0
+offset_left = 388.0
+offset_top = 258.0
+offset_right = 608.0
+offset_bottom = 276.0
+theme_override_colors/font_color = Color(0.68, 0.77, 0.85, 1)
+theme_override_font_sizes/font_size = 12
+text = "0° along motion · +90° outward"
+
+[node name="Notice" type="Label" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 276.0
+offset_right = 608.0
+offset_bottom = 306.0
+theme_override_colors/font_color = Color(1, 0.76, 0.52, 1)
+theme_override_font_sizes/font_size = 12
+autowrap_mode = 2
+vertical_alignment = 1
+
+[node name="Ignore" type="Button" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 388.0
+offset_top = 311.0
+offset_right = 468.0
+offset_bottom = 339.0
+text = "Ignore"
+
+[node name="Execute" type="Button" parent="Panel"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 476.0
+offset_top = 311.0
+offset_right = 608.0
+offset_bottom = 339.0
+theme_override_colors/font_color = Color(0.05, 0.16, 0.16, 1)
+theme_override_colors/font_focus_color = Color(0.05, 0.16, 0.16, 1)
+theme_override_colors/font_hover_color = Color(0.05, 0.16, 0.16, 1)
+theme_override_colors/font_pressed_color = Color(0.05, 0.16, 0.16, 1)
+theme_override_styles/normal = SubResource("Style_execute")
+theme_override_styles/hover = SubResource("Style_execute_hover")
+theme_override_styles/pressed = SubResource("Style_execute_hover")
+text = "Execute"

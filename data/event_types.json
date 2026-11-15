@@ -3,9 +3,63 @@
 		"id": "satellite_conjunction",
 		"name": "Satellite conjunction",
 		"kind": "threat",
-		"description": "Placeholder: another satellite is predicted to pass dangerously close.",
+		"description": "Another satellite may cross the spacecraft's path.",
 		"weight": 1.0,
 		"earliest_time_seconds": 600,
 		"inside_zone_multiplier": 3.0
+	},
+	{
+		"id": "debris_shower",
+		"name": "Debris shower",
+		"kind": "threat",
+		"description": "Several fragments may pass close enough to damage instruments.",
+		"weight": 1.0,
+		"earliest_time_seconds": 600,
+		"inside_zone_multiplier": 2.0
+	},
+	{
+		"id": "unknown_asteroid",
+		"name": "Unknown asteroid",
+		"kind": "threat",
+		"description": "An asteroid may cross the spacecraft's path.",
+		"weight": 1.0,
+		"earliest_time_seconds": 600,
+		"inside_zone_multiplier": 1.0
+	},
+	{
+		"id": "solar_flare",
+		"name": "Solar flare",
+		"kind": "environment",
+		"description": "Temporary interference affects instrument readings.",
+		"weight": 1.0,
+		"earliest_time_seconds": 600,
+		"inside_zone_multiplier": 2.0
+	},
+	{
+		"id": "engine_malfunction",
+		"name": "Engine malfunction",
+		"kind": "fault",
+		"description": "An engine loses efficiency or stops firing.",
+		"weight": 1.0,
+		"earliest_time_seconds": 600,
+		"inside_zone_multiplier": 1.0
+	},
+	{
+		"id": "propellant_leak",
+		"name": "Propellant leak",
+		"kind": "fault",
+		"description": "A liquid stage loses propellant over time.",
+		"weight": 1.0,
+		"earliest_time_seconds": 600,
+		"inside_zone_multiplier": 1.0
+	},
+	{
+		"id": "sensor_failure",
+		"name": "Sensor failure",
+		"kind": "fault",
+		"description": "A working telemetry instrument stops reporting.",
+		"weight": 1.0,
+		"earliest_time_seconds": 600,
+		"inside_zone_multiplier": 1.0
 	}
 ]
