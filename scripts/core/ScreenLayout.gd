@@ -14,6 +14,7 @@ const MOCKUP_SCALE := 5
 const PLANNING_OVERVIEW_BACKGROUND_PATH := "res://design/planning_screen.png"
 const ROCKET_DESIGN_BACKGROUND_PATH := "res://design/construction_screen.png"
 const ORBIT_PLANNING_BACKGROUND_PATH := "res://design/orbit_screen.png"
+const MISSION_SELECT_BACKGROUND_PATH := "res://assets/art/screens/mission_choice.png"
 const LOGO_PATH := "res://design/LOGO.png"
 
 ## --- Present on every console screen ----------------------------------------
@@ -60,6 +61,30 @@ const ORBIT_PLANNING_STAT_CHIP_SCREENS: Array[Rect2] = [
 	Rect2(205, 10, 150, 40),
 	Rect2(375, 10, 140, 40),
 ]
+
+## --- Mission select (mission_choice.png) ------------------------------------
+## Inside of the three white-framed panels: Mission, Science, Quests.
+const MISSION_SELECT_PANEL_SCREENS: Array[Rect2] = [
+	Rect2(30, 25, 185, 345),
+	Rect2(230, 25, 180, 345),
+	Rect2(425, 25, 185, 345),
+]
+## Each panel's title row: above the short white rule, as wide as the rule.
+const MISSION_SELECT_TITLE_ROWS: Array[Rect2] = [
+	Rect2(55, 25, 130, 35),
+	Rect2(255, 25, 130, 35),
+	Rect2(450, 25, 135, 35),
+]
+## The boxes below the titles, white frame included. The Mission panel has a
+## box per mission card; Science one for the first card; Quests a short box
+## for the penalty pips and, below it, one for the first quest card.
+const MISSION_SELECT_MISSION_CARD_BOXES: Array[Rect2] = [
+	Rect2(35, 70, 175, 55),
+	Rect2(35, 130, 175, 55),
+]
+const MISSION_SELECT_SCIENCE_CARD_BOX := Rect2(240, 70, 160, 60)
+const MISSION_SELECT_QUEST_PENALTY_BOX := Rect2(435, 70, 170, 35)
+const MISSION_SELECT_QUEST_CARD_BOX := Rect2(435, 100, 170, 60)
 
 ## --- Colours taken from the mock-ups ----------------------------------------
 const COLOR_BEZEL_LIGHT := Color("a49674")
