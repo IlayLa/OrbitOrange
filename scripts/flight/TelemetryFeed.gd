@@ -86,6 +86,17 @@ func set_interference(noise_fraction_addition: float, dropout_probability_additi
 	_interference_dropout = dropout_probability_addition
 
 
+## Whether a channel's instrument can produce a reading now: installed, working
+## and not dropping every sample. Changes only at flight boundaries.
+func can_report(channel: String, vehicle_state: VehicleState) -> bool:
+	var channel_index := _sampled_channels.find(channel)
+	if channel_index < 0:
+		return false
+	var part := _sampled_parts[channel_index]
+	return (vehicle_state.is_working_by_instrument.get(part["id"], false)
+			and _dropout_probabilities[channel_index] + _interference_dropout < 1.0)
+
+
 ## The latest valid observation, if the selected instrument is still working.
 func valid_reading(channel: String, vehicle_state: VehicleState) -> TelemetryReading:
 	var held: TelemetryReading = _held_readings.get(channel)

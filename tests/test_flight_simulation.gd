@@ -25,6 +25,7 @@ func run_tests(report: TestReport) -> void:
 	_check_burns(report)
 	_check_batched_sampling(report)
 	_check_frame_step_cap(report)
+	_check_fuel_gauge_stops(report)
 	_check_terminal_reasons(report)
 	_check_terminal_tick_precedence(report)
 	_check_low_fuel_alarm(report)
@@ -82,10 +83,12 @@ func _check_telemetry_and_science(report: TestReport) -> void:
 	report.check(first_frame.reading(channel).value == second_frame.reading(channel).value, "same seed survives different frame grouping")
 	report.check_close(first_frame.data_generated_megabits, 200.0, 0.0001, "100 seconds of science at 2 megabits per second")
 	report.check_close(first_frame.data_delivered_megabits, 200.0, 0.0001, "instant link delivers all science")
-	first.advance_simulation(1.0)
-	report.check(first._create_telemetry_frame().reading(channel).value == first_frame.reading(channel).value, "slow sensor holds its sample")
-	# The flight moves from tick to tick (every 5 s); these 4 s reach the tick at 105 s.
-	first.advance_simulation(4.0)
+	# The flight moves from tick to tick (every 5 s); 5 s more reach the tick at 105 s.
+	first.advance_simulation(5.0)
+	var held_reading := first._create_telemetry_frame().reading(channel)
+	report.check(first.simulation_time_seconds == 105.0 and held_reading.sample_time_seconds == 104.0
+			and held_reading.value != first_frame.reading(channel).value,
+			"the 0.5 Hz sensor sampled at 102 s and 104 s and holds the 104 s sample at 105 s")
 	first.vehicle_state.is_working_by_instrument[TEST_ALTIMETER_ID] = false
 	first.vehicle_state.is_working_by_instrument[TEST_CAMERA_ID] = false
 	first.advance_simulation(10.0)
@@ -187,6 +190,20 @@ func _check_batched_sampling(report: TestReport) -> void:
 	report.check(one_by_one_random.state == batched_random.state, "batched sampling draws the same random numbers")
 	report.check_close(one_by_one.next_sample_time_seconds(), batched.next_sample_time_seconds(), 0.0,
 			"batched sampling leaves the same next sample time")
+	flight.free()
+
+
+## Fuel gauge samples stop the flight only while one could give the early
+## warning: never for a failed gauge, whatever the fuel.
+func _check_fuel_gauge_stops(report: TestReport) -> void:
+	var flight := _start_flight(["telemetry_fuel_gauge"], 3000.0)
+	for stage in flight.vehicle_state.design.stages:
+		flight.vehicle_state.propellant_kilograms_by_stage[stage.stage_id] = 0.2 * RocketModel.full_propellant_kilograms(stage)
+	report.check(flight._can_fuel_gauge_warn_early() and is_finite(flight._next_diagnosed_sample_time_seconds()),
+			"at 20% fuel a working gauge could warn early, so its samples stop the flight")
+	flight.vehicle_state.is_working_by_instrument["telemetry_fuel_gauge"] = false
+	report.check(not flight._can_fuel_gauge_warn_early() and flight._next_diagnosed_sample_time_seconds() == INF,
+			"a failed gauge never warns, so its samples no longer stop the flight")
 	flight.free()
 
 

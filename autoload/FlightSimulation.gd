@@ -244,9 +244,6 @@ func advance_simulation(seconds: float) -> void:
 	if not is_finite(seconds) or seconds < 0.0:
 		return
 	_seconds_not_yet_simulated += seconds
-	# Samples due now (the ones at launch) are taken before the flight moves.
-	if _telemetry_feed.next_sample_time_seconds() <= simulation_time_seconds:
-		_sample_instruments()
 	var flight_number := _flight_number
 	while is_flying and time_scale > 0.0 and _flight_number == flight_number:
 		var pulse_time_seconds := _next_scheduled_pulse_time_seconds()
@@ -262,6 +259,10 @@ func advance_simulation(seconds: float) -> void:
 		boundary_time_seconds = _escape_crossing_time_seconds(boundary_time_seconds)
 		var elapsed_seconds := boundary_time_seconds - simulation_time_seconds
 		if elapsed_seconds > _seconds_not_yet_simulated + 1.0e-9:
+			# Nothing more happens now, so samples due now (the ones at launch)
+			# can be taken before the flight next moves.
+			if _telemetry_feed.next_sample_time_seconds() <= simulation_time_seconds:
+				_sample_instruments()
 			return
 		_seconds_not_yet_simulated = maxf(0.0, _seconds_not_yet_simulated - elapsed_seconds)
 		_sample_instruments_before(boundary_time_seconds)
@@ -670,8 +671,11 @@ func _record_sample_diagnostics() -> void:
 ## Whether a fuel gauge sample taken before the next boundary could read low
 ## enough for the early warning. The fuel, the capacity and the interference
 ## only change at boundaries, and the noise moves a reading by at most the
-## noise fraction of the true value.
+## noise fraction of the true value. A failed gauge, or one that drops every
+## sample, never warns.
 func _can_fuel_gauge_warn_early() -> bool:
+	if not _telemetry_feed.can_report(TelemetryFrame.CHANNEL_FUEL_KILOGRAMS, vehicle_state):
+		return false
 	var capacity_kilograms := _attached_propellant_capacity_kilograms()
 	var fuel_kilograms := _fuel_kilograms()
 	if capacity_kilograms <= 0.0 or fuel_kilograms <= capacity_kilograms * LOW_FUEL_FRACTION:
