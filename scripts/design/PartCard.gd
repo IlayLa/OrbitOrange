@@ -20,6 +20,12 @@ const NUMBER_FONT_SIZE_PIXELS := 8
 const COLOR_CARD_TEXT := Color("ffffff")
 const COLOR_COST_TEXT := Color("ffd27a")
 const COLOR_GLYPH := Color("bed3fa")
+## The card keeps its own dark face: its labels are light, so the project's
+## white button skin (assets/ui/ui_theme.tres) would hide them.
+const COLOR_CARD := Color("101820")
+const COLOR_CARD_PRESSED := Color("1b2c44")
+const COLOR_FRAME := Color("83817c")
+const COLOR_FRAME_HOVER := Color("bed3fa")
 
 const ENGINE_TYPE_SOLID := "solid"
 
@@ -33,6 +39,7 @@ func configure(part: Dictionary, card_width_pixels: float) -> void:
 	size = custom_minimum_size
 	clip_contents = true
 	focus_mode = Control.FOCUS_NONE
+	_apply_card_styles()
 
 	var icon_rect := TextureRect.new()
 	icon_rect.position = Vector2(MARGIN_PIXELS, MARGIN_PIXELS)
@@ -85,6 +92,24 @@ func configure(part: Dictionary, card_width_pixels: float) -> void:
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
 	gui_input.connect(_on_gui_input)
+
+
+## Dark card styles for every button state, replacing the theme's button skin.
+func _apply_card_styles() -> void:
+	for style_name in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		var style := StyleBoxFlat.new()
+		style.bg_color = COLOR_CARD
+		style.border_color = COLOR_FRAME
+		style.set_border_width_all(1)
+		match style_name:
+			"hover":
+				style.border_color = COLOR_FRAME_HOVER
+			"pressed", "hover_pressed":
+				style.bg_color = COLOR_CARD_PRESSED
+				style.border_color = COLOR_FRAME_HOVER
+			"focus":
+				style.draw_center = false
+		add_theme_stylebox_override(style_name, style)
 
 
 ## The cost as "$1M" or "$12.5M".
