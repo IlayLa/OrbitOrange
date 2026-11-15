@@ -32,9 +32,7 @@ const BUTTON_GAP_PIXELS := 6.0
 const MESSAGE_FONT_SIZE_PIXELS := 8
 const BUTTON_FONT_SIZE_PIXELS := 10
 const BACK_BUTTON_FONT_SIZE_PIXELS := 8
-## Scale of the orbit view on the small overview monitor.
-const OVERVIEW_BODY_RADIUS_PIXELS := 45.0
-const OVERVIEW_PIXELS_PER_KILOMETER := 0.05
+const LAMP_BAR_HEIGHT_PIXELS := 13.0
 
 const MESSAGE_NO_MISSION := "No mission selected."
 const MESSAGE_READY := "Ready to launch."
@@ -55,6 +53,12 @@ var _overview: Control
 var _rocket_monitor_preview: RocketStackPreview
 var _orbit_monitor: OrbitView
 var _message_label: RichTextLabel
+## Warning lamps of the plan, with the "✖1 ▲2" summary, above the message line.
+var _lamp_bar: LampBar
+var _lamps: Array[Dictionary] = []
+## The sentence of the lamp the player points at or pinned; "" for none.
+var _active_lamp_sentence: String = ""
+var _active_lamp_severity: int = WarningLamps.Severity.OK
 var _rocket_design_holder: Control
 var _orbit_planning_holder: Control
 var _all_stat_chips: Array[StatChips] = []
@@ -270,13 +274,22 @@ func _create_top_bezel() -> void:
 	hint_label.add_theme_color_override("font_color", ScreenLayout.COLOR_SPACE_BLACK)
 	_overview.add_child(hint_label)
 
-	var messages_top_pixels: float = launch_button.position.y + LAUNCH_BUTTON_SIZE.y + 2.0
+	var lamps_top_pixels: float = launch_button.position.y + LAUNCH_BUTTON_SIZE.y + 2.0
+	_lamp_bar = LampBar.new()
+	_lamp_bar.position = Vector2(top_bezel.position.x, lamps_top_pixels)
+	_lamp_bar.size = Vector2(top_bezel.size.x, LAMP_BAR_HEIGHT_PIXELS)
+	_lamp_bar.tooltip_text = "Warning lamps: hover one for its reason, click to pin it, Tab to step through."
+	_lamp_bar.active_sentence_changed.connect(_on_active_lamp_changed)
+	_overview.add_child(_lamp_bar)
+
+	# One line for the sentence of the lamp under the mouse (or the worst one).
+	var messages_top_pixels: float = lamps_top_pixels + LAMP_BAR_HEIGHT_PIXELS + 1.0
 	_message_label = RichTextLabel.new()
 	_message_label.bbcode_enabled = true
 	_message_label.position = Vector2(top_bezel.position.x, messages_top_pixels)
 	_message_label.size = Vector2(top_bezel.size.x, top_bezel.end.y - messages_top_pixels)
-	_message_label.scroll_active = true
-	_message_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_message_label.scroll_active = false
+	_message_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_message_label.add_theme_font_size_override("normal_font_size", MESSAGE_FONT_SIZE_PIXELS)
 	_message_label.add_theme_constant_override("line_separation", -1)
 	var message_style := StyleBoxFlat.new()
@@ -343,7 +356,10 @@ func _refresh() -> void:
 	var summary: PlanSummary = GameState.summary
 	for stat_chips in _all_stat_chips:
 		stat_chips.refresh(summary, GameState.budget_million_usd)
+	_lamps = WarningLamps.lamps_from_summary(summary)
 	_rocket_monitor_preview.show_design(GameState.design)
+	_rocket_monitor_preview.show_lamps(_lamps)
+	_lamp_bar.set_lamps(_lamps)
 
 	if summary == null:
 		launch_button.disabled = true
@@ -359,13 +375,11 @@ func _refresh() -> void:
 	launch_button.disabled = GameState.has_launched or not blocking_problems.is_empty()
 	if GameState.has_launched:
 		launch_button.tooltip_text = MESSAGE_LAUNCHED
-		_message_label.text = MESSAGE_LAUNCHED
 	elif blocking_problems.is_empty():
 		launch_button.tooltip_text = "Start the flight"
-		_message_label.text = _message_text(summary)
 	else:
 		launch_button.tooltip_text = "Cannot launch: " + " ".join(PackedStringArray(blocking_problems))
-		_message_label.text = _message_text(summary)
+	_update_message()
 
 	# OrbitView scales the complete mission itself, keeping its rings and zones.
 	_orbit_monitor.configure(GameData.body(GameState.mission.get("body_id", "earth")), GameState.mission)
@@ -376,19 +390,42 @@ func _refresh() -> void:
 	_orbit_monitor.show_trajectory(GameState.trajectory if has_flight_path else null)
 
 
-## Blocking problems first, in red, then the other sentences of warnings.
-func _message_text(summary: PlanSummary) -> String:
-	var lines: Array[String] = []
-	var red_code: String = ScreenLayout.COLOR_WARNING_RED.to_html(false)
-	for blocking_problem in summary.blocking_problems:
-		lines.append("[color=#%s]Cannot launch: %s[/color]" % [red_code, _escape_bbcode(blocking_problem)])
-	for warning in summary.warnings:
-		if not summary.blocking_problems.has(warning):
-			lines.append(_escape_bbcode(warning))
-	if lines.is_empty():
-		lines.append(MESSAGE_READY)
-	return "\n".join(PackedStringArray(lines))
+## One line under the lamps: after the launch, the launch message; otherwise
+## the sentence of the lamp under the mouse, pinned or focused, else the
+## worst lamp's sentence, else "Ready to launch.". Blocking sentences are red
+## and start with a cross, warnings amber with a triangle: shape and colour both.
+func _update_message() -> void:
+	if GameState.summary == null:
+		_message_label.text = MESSAGE_NO_MISSION
+		return
+	if GameState.has_launched:
+		_message_label.text = MESSAGE_LAUNCHED
+		return
+	var sentence := _active_lamp_sentence
+	var severity := _active_lamp_severity
+	var hidden_lamp_count := 0
+	if sentence.is_empty() and not _lamps.is_empty():
+		sentence = _lamps[0]["sentence"]
+		severity = _lamps[0]["severity"]
+		hidden_lamp_count = _lamps.size() - 1
+	_message_label.text = message_line(sentence, severity, hidden_lamp_count)
 
 
-func _escape_bbcode(plain_text: String) -> String:
-	return plain_text.replace("[", "[lb]")
+## The BBCode of the message line for one lamp sentence ("" means ready).
+## hidden_lamp_count other lit lamps are announced as "(+N more)".
+static func message_line(sentence: String, severity: int, hidden_lamp_count: int = 0) -> String:
+	if sentence.is_empty():
+		return MESSAGE_READY
+	var color_code: String = PixelGlyphs.lamp_color(severity).to_html(false)
+	var mark := "x" if severity == WarningLamps.Severity.BLOCKING else "!"
+	var lead := "Cannot launch: " if severity == WarningLamps.Severity.BLOCKING else ""
+	var more_text := ""
+	if hidden_lamp_count > 0:
+		more_text = "  [color=#%s](+%d more)[/color]" % [PixelGlyphs.COLOR_MUTED_TEXT.to_html(false), hidden_lamp_count]
+	return "[color=#%s][b]%s[/b] %s%s[/color]%s" % [color_code, mark, lead, sentence.replace("[", "[lb]"), more_text]
+
+
+func _on_active_lamp_changed(sentence: String, severity: int) -> void:
+	_active_lamp_sentence = sentence
+	_active_lamp_severity = severity
+	_update_message()
