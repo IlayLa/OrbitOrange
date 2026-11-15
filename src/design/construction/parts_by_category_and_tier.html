@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rocket parts by category and tier</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --page: #f6f4ef; --card: #ffffff; --text: #1d2128; --muted: #5d6573;
+  --line: #d9d4c7; --head: #ece8de; --accent: #c2410c; --tag-text: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --page: #15181d; --card: #1e2229; --text: #e8eaee; --muted: #9aa3b1;
+          --line: #343a44; --head: #262b33; --accent: #fb7a3c; --tag-text: #15181d; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 40px; background: var(--page); color: var(--text);
+       font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+main { max-width: 1040px; margin: 0 auto; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+p.lead { margin: 0 0 20px; color: var(--muted); }
+.wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; min-width: 640px; }
+th, td { border-bottom: 1px solid var(--line); padding: 12px 14px; text-align: left; vertical-align: top; }
+thead th, tfoot th, tfoot td { background: var(--head); font-weight: 600; }
+thead th { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 1px solid var(--line); }
+tfoot th, tfoot td { border-bottom: 0; }
+th[scope="row"] { width: 150px; }
+.tag { display: inline-block; background: var(--accent); color: var(--tag-text); font-weight: 700;
+       font-size: 0.8rem; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 4px; }
+.title { display: block; margin-top: 6px; font-weight: 600; }
+.count { display: block; color: var(--muted); font-weight: 400; font-size: 0.85rem; }
+ul { margin: 0; padding-left: 1.1em; }
+li { margin: 0 0 3px; }
+li.none { list-style: none; margin-left: -1.1em; color: var(--muted); font-style: italic; }
+.total { text-align: center; font-variant-numeric: tabular-nums; width: 70px; }
+p.note { color: var(--muted); font-size: 0.85rem; margin: 14px 2px 0; }
+@media print {
+  :root { --page: #fff; --card: #fff; --text: #000; --muted: #444; --line: #999; --head: #eee; --accent: #000; --tag-text: #fff; }
+  body { padding: 0; font-size: 11pt; }
+  .wrap { overflow: visible; border-radius: 0; }
+  table { min-width: 0; }
+  tr { break-inside: avoid; }
+  .tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<main>
+<h1>Rocket parts by category and tier</h1>
+<p class="lead">29 parts in 4 categories and 3 tiers, as listed on the rocket design screen.</p>
+<div class="wrap">
+<table>
+<thead><tr><th scope="col">Category</th><th scope="col">Tier 1</th><th scope="col">Tier 2</th><th scope="col">Tier 3</th><th scope="col" class="total">Total</th></tr></thead>
+<tbody>
+<tr><th scope="row"><span class="tag">ENG</span><span class="title">Engines</span><span class="count">7 parts</span></th><td><ul><li>Cold-gas thruster</li><li>Small solid kick motor (Star 37 class)</li></ul></td><td><ul><li>Solid motor (Star 48 class)</li><li>Small upper-stage engine (Rutherford class)</li><li>Booster engine (Merlin class)</li></ul></td><td><ul><li>Large solid booster (Orion 50S XL class)</li><li>Hydrogen upper-stage engine (RL10 class)</li></ul></td><td class="total">7</td></tr>
+<tr><th scope="row"><span class="tag">MAT</span><span class="title">Tanks</span><span class="count">6 parts</span></th><td><ul><li>Small aluminium tank</li><li>Large aluminium tank</li></ul></td><td><ul><li>Small aluminium-lithium tank</li><li>Large aluminium-lithium tank</li></ul></td><td><ul><li>Small carbon-composite tank</li><li>Large carbon-composite tank</li></ul></td><td class="total">6</td></tr>
+<tr><th scope="row"><span class="tag">TEL</span><span class="title">Telemetry</span><span class="count">11 parts</span></th><td><ul><li>Temperature sensor</li><li>Sun sensor</li><li>Basic altimeter</li><li>Basic onboard computer</li><li>Basic proximity radar</li></ul></td><td><ul><li>Fuel gauge</li><li>Tracking proximity radar</li></ul></td><td><ul><li>Precise altimeter</li><li>Star tracker</li><li>Radiation-hardened computer</li><li>Long-range rendezvous radar</li></ul></td><td class="total">11</td></tr>
+<tr><th scope="row"><span class="tag">SCI</span><span class="title">Science</span><span class="count">5 parts</span></th><td><ul><li>Magnetometer</li><li>Basic Earth camera</li></ul></td><td><ul><li>Atmosphere probe</li></ul></td><td><ul><li>High-resolution Earth camera</li><li>Imaging radar</li></ul></td><td class="total">5</td></tr>
+</tbody>
+<tfoot><tr><th scope="row">Total</th><td class="total">11</td><td class="total">8</td><td class="total">10</td><td class="total">29</td></tr></tfoot>
+</table>
+</div>
+<p class="note">Within each cell, parts appear in the same order as in the game's part list.</p>
+</main>
+</body>
+</html>
