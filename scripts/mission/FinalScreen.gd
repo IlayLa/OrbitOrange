@@ -2,13 +2,17 @@ extends Control
 ## Displays the scored result and flight log; also works without an active run.
 
 const PORTRAIT_PATHS := {
-	"Failure": "res://assets/placeholders/portraits/failure.png",
-	"Partial Success": "res://assets/placeholders/portraits/partial_success.png",
-	"Success": "res://assets/placeholders/portraits/success.png",
-	"Great Success": "res://assets/placeholders/portraits/great_success.png",
-	"Perfect": "res://assets/placeholders/portraits/perfect.png",
-	"Scientific Breakthrough": "res://assets/placeholders/portraits/scientific_breakthrough.png",
+	"Failure": "res://assets/art/portraits/amit_concerned.png",
+	"Partial Success": "res://assets/art/portraits/amit_judging.png",
+	"Success": "res://assets/art/portraits/amit_happy.png",
+	"Great Success": "res://assets/art/portraits/amit_greatsuccess.png",
+	"Perfect": "res://assets/art/portraits/amit_greatsuccess.png",
+	"Scientific Breakthrough": "res://assets/art/portraits/amit_explaining.png",
 }
+## Amit fills only the middle of each 128x80 sprite; this 72x72 window holds
+## every pose (widest is amit_explaining) and is drawn 1:1 in the portrait rect.
+const PORTRAIT_CROP := Rect2(18, 0, 72, 72)
+const SPEECH_BUBBLE_TEXTS := {"Perfect": "I Like It - Perfect"}
 var _score_contents: VBoxContainer
 var _event_contents: VBoxContainer
 
@@ -22,8 +26,12 @@ func _ready() -> void:
 	portrait.size = Vector2(72, 72)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	portrait.texture = load(PORTRAIT_PATHS.get(score.band_name if score != null else "Failure", PORTRAIT_PATHS["Failure"]))
+	var band_name := score.band_name if score != null else "Failure"
+	portrait.texture = portrait_texture(band_name)
 	add_child(portrait)
+	var bubble_text: String = SPEECH_BUBBLE_TEXTS.get(band_name, "")
+	if bubble_text != "":
+		_add_speech_bubble(bubble_text)
 	var heading := MissionPresentation.add_label(self, "MISSION REPORT", 20)
 	heading.position = Vector2(102, 10)
 	heading.size = Vector2(400, 28)
@@ -55,6 +63,33 @@ func _ready() -> void:
 	menu_button.size = Vector2(202, 34)
 	menu_button.pressed.connect(GameState.go_to_scene.bind(GameState.MAIN_MENU_SCENE_PATH))
 	add_child(menu_button)
+
+## Returns Amit's portrait for the band, cropped to the part of the sprite he fills.
+static func portrait_texture(band_name: String) -> AtlasTexture:
+	var texture := AtlasTexture.new()
+	texture.atlas = load(PORTRAIT_PATHS.get(band_name, PORTRAIT_PATHS["Failure"]))
+	texture.region = PORTRAIT_CROP
+	return texture
+
+## Adds a small speech bubble to the right of the heading, pointing back at Amit.
+func _add_speech_bubble(text: String) -> void:
+	var bubble := PanelContainer.new()
+	bubble.name = "SpeechBubble"
+	bubble.position = Vector2(300, 8)
+	var style := StyleBoxFlat.new()
+	style.bg_color = ScreenLayout.COLOR_TEXT_LIGHT
+	style.border_color = ScreenLayout.COLOR_ACCENT_ORANGE
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(6)
+	bubble.add_theme_stylebox_override("panel", style)
+	add_child(bubble)
+	var label := Label.new()
+	label.name = "SpeechBubbleLabel"
+	label.text = text
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", ScreenLayout.COLOR_SPACE_BLACK)
+	bubble.add_child(label)
 
 func _status_text(score: ScoreReport, result: FlightResult) -> String:
 	if score == null:
