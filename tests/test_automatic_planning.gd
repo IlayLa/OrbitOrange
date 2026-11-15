@@ -270,11 +270,13 @@ func _check_insertion_countdown(report: TestReport) -> void:
 	report.check_close(flight._create_telemetry_frame().seconds_until_next_pulse,
 			insertion_seconds - flight.simulation_time_seconds, 0.00001,
 			"the coast countdown shows the automatic insertion time")
-	flight.set_time_scale(1000.0)
+	# The lead is one real second at 1x; a coast shorter than that slows at once.
+	var expected_lead_seconds := minf(Flight.PULSE_SLOWDOWN_LEAD_SECONDS, insertion_seconds - flight.simulation_time_seconds)
+	flight.set_time_scale(Flight.ALLOWED_TIME_SCALES.back())
 	flight.advance_simulation(insertion_seconds)
-	report.check(flight.time_scale == 1.0, "warp slows before automatic insertion")
+	report.check(flight.time_scale == Flight.NORMAL_TIME_SCALE, "warp slows to 1x before automatic insertion")
 	report.check_close(flight._create_telemetry_frame().seconds_until_next_pulse,
-			Flight.PULSE_SLOWDOWN_LEAD_SECONDS, 0.00001,
+			expected_lead_seconds, 0.00001,
 			"the insertion clock and the warp slowdown agree")
 	flight.advance_simulation(Flight.PULSE_SLOWDOWN_LEAD_SECONDS)
 	report.check(flight._create_telemetry_frame().seconds_until_next_pulse == INF,

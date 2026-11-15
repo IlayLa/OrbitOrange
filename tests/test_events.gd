@@ -21,12 +21,16 @@ const ENGINE_FAULT := "engine_malfunction"
 const LEAK := "propellant_leak"
 const SENSOR_FAULT := "sensor_failure"
 const FLARE := "solar_flare"
-const STEP_SECONDS := 5.0
+const STEP_SECONDS := Flight.SIMULATION_STEP_SECONDS
+## The detached HookFlight fixture ticks in its own, longer steps: event rates
+## do not depend on the tick length, and 1,000 hours stay cheap to roll.
+const HOOK_STEP_SECONDS := 5.0
 
 
 func run_tests(report: TestReport) -> void:
 	_check_rate_modifiers(report)
 	_check_rate_samples(report)
+	_check_rate_cache(report)
 	_check_geometry(report)
 	_check_radar_and_queue(report)
 	_check_warning_tradeoffs(report)
@@ -63,10 +67,43 @@ func _check_rate_modifiers(report: TestReport) -> void:
 			1.5, 1.0e-10, "overlapping zones count once and both quest modifiers multiply")
 
 
+## The director caches rates per altitude band; they must equal EventRates at
+## every altitude, including exactly on band and zone edges.
+func _check_rate_cache(report: TestReport) -> void:
+	var quests: Array[Dictionary] = [
+		{"related_event_type_ids": [CONJUNCTION], "related_multiplier": 2.0, "unrelated_bonus": 0.05},
+	]
+	for mission_entry in GameData.all_missions():
+		var mission: Dictionary = mission_entry
+		var director := Director.new()
+		var flight := HookFlight.new()
+		director.configure(flight, mission, quests, 3, true, false)
+		flight.flight_started.emit()
+		var altitudes: Array[float] = [-10.0, 0.0, 0.5, 2000.0, 1.0e6]
+		for edge in director._rate_band_edges_kilometers:
+			altitudes.append_array([edge - 1.0e-9, edge, edge + 1.0e-9])
+		for step_index in 400:
+			altitudes.append(step_index * 5.0 + 0.37)
+		var mismatches := 0
+		for repeat in 2:
+			for altitude_kilometers in altitudes:
+				var cached: PackedFloat64Array = director._rates_at_altitude(altitude_kilometers)
+				for type_index in director._event_types.size():
+					var direct := EventRates.effective_rate_events_per_hour(
+							director._event_types[type_index], director._mission, director._quests, altitude_kilometers, INF)
+					if cached[type_index] != direct:
+						mismatches += 1
+		report.check(mismatches == 0 and director._rate_band_edges_kilometers.size() > 0,
+				"%s: cached event rates equal EventRates at %d altitudes (%d mismatches)" % [
+					mission["id"], altitudes.size(), mismatches])
+		director.free()
+		flight.free()
+
+
 func _check_rate_samples(report: TestReport) -> void:
 	var zero_rows := _run_rate_fixture(0.0, 10000)
 	report.check(zero_rows.is_empty(), "zero events are rolled in 10,000 zero-rate ticks")
-	var steps_per_thousand_hours := int(1000.0 * 3600.0 / STEP_SECONDS)
+	var steps_per_thousand_hours := int(1000.0 * 3600.0 / HOOK_STEP_SECONDS)
 	var rows := _run_rate_fixture(0.2, steps_per_thousand_hours)
 	report.check(absi(rows.size() - 200) <= 60,
 			"a fixed seed rolls %d events at 0.2 per hour over 1,000 hours" % rows.size())
@@ -75,7 +112,7 @@ func _check_rate_samples(report: TestReport) -> void:
 func _run_rate_fixture(rate_events_per_hour: float, number_of_steps: int) -> Array[Dictionary]:
 	var mission := {
 		"body_id": "earth",
-		"duration_seconds": STEP_SECONDS * (number_of_steps + 1),
+		"duration_seconds": HOOK_STEP_SECONDS * (number_of_steps + 1),
 		"hazard_rates": {SENSOR_FAULT: [_band(0.0, 2000.0, rate_events_per_hour)]},
 	}
 	var flight := HookFlight.new()
@@ -180,7 +217,7 @@ func _check_radar_and_queue(report: TestReport) -> void:
 	flight.advance_simulation(160.0)
 	report.check(alerts.size() == 2 and later.is_revealed and earlier.is_revealed,
 			"persistently revealed contacts never trigger the same alert twice")
-	report.check(flight.time_scale == 1.0 and flight.threats.is_empty()
+	report.check(flight.time_scale == FlightSimulation.NORMAL_TIME_SCALE and flight.threats.is_empty()
 			and flight.event_log.size() == 2
 			and flight.event_log[0]["outcome"] == "Threat avoided" and flight.event_log[1]["outcome"] == "Threat avoided",
 			"Ignoring both near misses resumes at 1× and resolves both event rows")
@@ -195,9 +232,9 @@ func _check_radar_and_queue(report: TestReport) -> void:
 	now_seconds = flight.simulation_time_seconds
 	var failed_radar_threat := _crossing_threat(body, flight.trajectory, now_seconds, now_seconds + 17.5, 175.0, 100.0, CONJUNCTION)
 	director.force_encounter(CONJUNCTION, [failed_radar_threat], now_seconds + 17.5)
-	flight.advance_simulation(STEP_SECONDS)
+	flight.advance_simulation(5.0)
 	report.check(director.active_encounter.is_empty(), "outside ten seconds a failed selected radar gives no alert")
-	flight.advance_simulation(STEP_SECONDS)
+	flight.advance_simulation(5.0)
 	report.check(not failed_radar_threat.is_revealed and not director.active_encounter.is_empty() and flight.time_scale == 0.0,
 			"within ten seconds the late warning still works when the highest-tier radar failed")
 	director.acknowledge_alert()
@@ -290,7 +327,7 @@ func _check_emergency_burn(report: TestReport) -> void:
 			"a stage that fails between preview and execution leaves flight paused with its alert")
 	flight.vehicle_state.has_failed_by_stage[stage_id] = false
 	var fired: BurnOutcome = director.acknowledge_alert(pulse)
-	report.check(fired != null and fired.did_fire and flight.time_scale == 1.0,
+	report.check(fired != null and fired.did_fire and flight.time_scale == FlightSimulation.NORMAL_TIME_SCALE,
 			"a successful Execute fires and resumes flight at 1×")
 	if fired != null and fired.did_fire:
 		var candidate_state := OrbitModel.state_at_time(body, preview, flight.simulation_time_seconds)
@@ -367,6 +404,9 @@ func _check_science_after_impact(report: TestReport) -> void:
 	var basic_rate: float = GameData.part(CAMERA)["stats"]["data_rate_megabits_per_second"]
 	var high_resolution_rate: float = GameData.part(HIGH_RESOLUTION_CAMERA)["stats"]["data_rate_megabits_per_second"]
 	var combined_rate := basic_rate + high_resolution_rate
+	# The last tick before the impact, and the tick that contains it.
+	var settled_seconds := floorf(SECONDS_UNTIL_IMPACT / STEP_SECONDS) * STEP_SECONDS
+	var impact_tick_end_seconds := settled_seconds + STEP_SECONDS
 	for event_type_id: String in [DEBRIS, CONJUNCTION]:
 		var fixture := _orbital_flight([HIGH_RESOLUTION_CAMERA])
 		var flight: Flight = fixture["flight"]
@@ -386,10 +426,10 @@ func _check_science_after_impact(report: TestReport) -> void:
 		director.force_encounter(event_type_id, [threat], target_seconds)
 		flight.advance_simulation(10.0)
 		director.acknowledge_alert()
-		flight.advance_simulation(8.0)
+		flight.advance_simulation(now_seconds + settled_seconds - flight.simulation_time_seconds)
 		report.check_close(flight._create_telemetry_frame().data_delivered_megabits,
-				prior_data + combined_rate * 15.0, 1.0e-5, "unsettled impact-tick data is not shown as delivered")
-		flight.advance_simulation(2.0)
+				prior_data + combined_rate * settled_seconds, 1.0e-5, "unsettled impact-tick data is not shown as delivered")
+		flight.advance_simulation(STEP_SECONDS)
 		var data_at_impact := prior_data + combined_rate * SECONDS_UNTIL_IMPACT
 		if event_type_id == CONJUNCTION:
 			report.check(results.size() == 1, "the fatal collision records one science result")
@@ -401,7 +441,7 @@ func _check_science_after_impact(report: TestReport) -> void:
 			report.check(flight.vehicle_state.working_instrument_count() == 1,
 					"debris disables one camera and leaves the other working")
 			var frame := flight._create_telemetry_frame()
-			var expected_data := data_at_impact + survivor_rate * (20.0 - SECONDS_UNTIL_IMPACT)
+			var expected_data := data_at_impact + survivor_rate * (impact_tick_end_seconds - SECONDS_UNTIL_IMPACT)
 			report.check_close(frame.data_delivered_megabits, expected_data, 1.0e-5,
 					"only the surviving camera transmits during the rest of the impact tick")
 			report.check_close(frame.data_generated_megabits, expected_data, 1.0e-5,
@@ -509,13 +549,14 @@ func _check_terminal_precedence(report: TestReport) -> void:
 
 
 func _check_real_warp_replay(report: TestReport) -> void:
-	var earlier := _warp_fixture_events(1.0)
-	var warped := _warp_fixture_events(1000.0)
+	# One fixed tick per frame at 0.5x against the whole replay in one 8x frame.
+	var earlier := _warp_fixture_events(FlightSimulation.ALLOWED_TIME_SCALES[1], STEP_SECONDS)
+	var warped := _warp_fixture_events(FlightSimulation.ALLOWED_TIME_SCALES.back(), INF)
 	report.check(earlier.size() >= 2, "the seed and rate chosen for the warp fixture roll multiple events")
-	report.check(earlier == warped, "1× and 1000× reproduce exact event ids, times, targets and outcomes")
+	report.check(earlier == warped, "0.5x tick by tick and 8x in one frame reproduce exact event ids, times, targets and outcomes")
 
 
-func _warp_fixture_events(scale_factor: float) -> Array[Dictionary]:
+func _warp_fixture_events(scale_factor: float, simulated_seconds_per_frame: float) -> Array[Dictionary]:
 	var fixture := _orbital_flight([RADAR_ADVANCED], false, true)
 	var flight: Flight = fixture["flight"]
 	var director: Director = fixture["director"]
@@ -525,14 +566,15 @@ func _warp_fixture_events(scale_factor: float) -> Array[Dictionary]:
 	var target_seconds := start_seconds + 95.0
 	var near_miss := _crossing_threat(body, flight.trajectory, start_seconds, target_seconds, 250.0, 100.0, CONJUNCTION)
 	director.force_encounter(CONJUNCTION, [near_miss], target_seconds)
-	for frame_index in 205:
+	# Enough frames for 1,000 s one tick at a time, plus a frame lost to each alert.
+	for frame_index in ceili(REPLAY_SECONDS / STEP_SECONDS) + 50:
 		if not flight.is_flying or flight.simulation_time_seconds >= start_seconds + REPLAY_SECONDS:
 			break
 		if flight.time_scale == 0.0:
 			director.acknowledge_alert()
 		flight.set_time_scale(scale_factor)
 		var elapsed_seconds := flight.simulation_time_seconds - start_seconds
-		var simulated_seconds := minf(scale_factor * STEP_SECONDS, REPLAY_SECONDS - elapsed_seconds)
+		var simulated_seconds := minf(simulated_seconds_per_frame, REPLAY_SECONDS - elapsed_seconds)
 		flight._process(simulated_seconds / scale_factor)
 	var rows: Array[Dictionary] = flight.event_log.duplicate(true)
 	_free_fixture(fixture)
@@ -651,10 +693,11 @@ func _orbital_flight(
 	var pulses: Array[int] = []
 	flight.pulse_fired.connect(func(pulse_index: int, _outcome: BurnOutcome) -> void: pulses.append(pulse_index))
 	flight.start_flight(design, plan, mission, 32855)
-	for tick in 400:
+	# Fly to orbit in 5 s chunks: the 2,000 s this allows reach the circularizing pulse.
+	for chunk in 400:
 		if not flight.is_flying or not pulses.is_empty():
 			break
-		flight.advance_simulation(STEP_SECONDS)
+		flight.advance_simulation(5.0)
 	return {"flight": flight, "director": director, "pending_pulse": pending_pulse}
 
 
@@ -726,9 +769,9 @@ class HookFlight extends Node:
 		vehicle_state = RocketModel.create_vehicle_state(design)
 
 	func advance_tick() -> void:
-		simulation_time_seconds += STEP_SECONDS
+		simulation_time_seconds += HOOK_STEP_SECONDS
 		craft_state.time_seconds = simulation_time_seconds
-		simulation_step.emit(STEP_SECONDS)
+		simulation_step.emit(HOOK_STEP_SECONDS)
 
 	func log_event(record: Dictionary) -> void:
 		event_log.append(record.duplicate(true))

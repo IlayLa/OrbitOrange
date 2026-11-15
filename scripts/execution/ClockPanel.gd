@@ -1,7 +1,8 @@
 class_name ClockPanel
 extends Control
-## The mission clock (time since launch and time to the next pulse) and the
-## time controls: pause, 1x, 10x, 100x, 1000x. The button matching the frame's
+## The mission clock (time since launch as years, months, days and hours, and
+## the time to the next pulse) and the time controls: pause, 0.5x, 1x, 2x, 4x,
+## 8x, where 1x is FlightSimulation.NORMAL_TIME_SCALE. The button matching the frame's
 ## time scale is highlighted. Pressing a button only emits
 ## time_scale_requested; ExecutionConsole passes it to FlightSimulation.
 
@@ -34,8 +35,8 @@ func _ready() -> void:
 
 ## Shows the frame's clock values and highlights its time scale.
 func show_frame(frame: TelemetryFrame) -> void:
-	_mission_time_label.text = "T+ " + ReadingFormat.duration_text(frame.simulation_time_seconds)
-	_next_pulse_label.text = "Next pulse in " + ReadingFormat.duration_text(frame.seconds_until_next_pulse)
+	_mission_time_label.text = "T+ " + ReadingFormat.mission_time_text(frame.simulation_time_seconds)
+	_next_pulse_label.text = "Next pulse in " + ReadingFormat.countdown_text(frame.seconds_until_next_pulse)
 	highlight_time_scale(frame.time_scale)
 
 

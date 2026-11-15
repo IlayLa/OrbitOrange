@@ -70,7 +70,7 @@ theme_override_font_sizes/font_size = 20
 [node name="FastForward" type="Button" parent="Readout"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Fast forward (100×)"
+text = "Fast forward (8x)"
 
 [node name="Restart" type="Button" parent="Readout"]
 unique_name_in_owner = true

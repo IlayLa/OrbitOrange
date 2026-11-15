@@ -74,7 +74,7 @@ func _start_live_flight() -> void:
 	ExampleFlight.fill_reference_flight(GameState.design, GameState.plan, GameState.mission)
 	GameState.notify_design_changed()
 	FlightSimulation.start_flight(GameState.design, GameState.plan, GameState.mission, GameState.random_seed)
-	FlightSimulation.set_time_scale(1.0)
+	FlightSimulation.set_time_scale(FlightSimulation.NORMAL_TIME_SCALE)
 	_has_started_flight = true
 	_console.set_debug_truth_shown(true)
 

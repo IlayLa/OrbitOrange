@@ -28,6 +28,11 @@ var _body: Dictionary = {}
 var _quests: Array[Dictionary] = []
 var _deadline_seconds := 0.0
 var _event_types: Array[Dictionary] = []
+# Hazard rates are constant between altitude band edges for a whole flight, so
+# _roll_events looks them up per band instead of recomputing them every tick.
+var _rate_band_edges_kilometers := PackedFloat64Array()
+var _rates_by_band: Dictionary = {}
+var _earliest_seconds_by_type := PackedFloat64Array()
 var _random := RandomNumberGenerator.new()
 var _faults := EventFaults.new()
 var _encounters: Array[Dictionary] = []
@@ -144,6 +149,7 @@ func _on_flight_started() -> void:
 	_deadline_seconds = maxf(0.0, float(_mission.get("duration_seconds", 0.0)))
 	_event_types = GameData.all_event_types()
 	_event_types.sort_custom(func(first: Dictionary, second: Dictionary) -> bool: return first["id"] < second["id"])
+	_prepare_rate_bands()
 	_elapsed_trajectory = _flight.trajectory
 	_is_session_active = not _body.is_empty()
 
@@ -245,14 +251,53 @@ func _has_reached_physical_boundary(time_seconds: float) -> bool:
 
 func _roll_events(time_seconds: float, step_seconds: float) -> void:
 	var altitude_kilometers := Kepler.altitude_meters(_flight.craft_state, _body) / 1000.0
-	for event_type in _event_types:
-		var events_per_hour := EventRates.effective_rate_events_per_hour(
-				event_type, _mission, _quests, altitude_kilometers, time_seconds)
+	var rates := _rates_at_altitude(altitude_kilometers)
+	for type_index in _event_types.size():
+		var event_type := _event_types[type_index]
+		if time_seconds < _earliest_seconds_by_type[type_index]:
+			continue
+		var events_per_hour := rates[type_index]
 		if events_per_hour <= 0.0:
 			continue
 		var probability := 1.0 - exp(-events_per_hour * step_seconds / 3600.0)
 		if _random.randf() < probability:
 			_apply_event(event_type, time_seconds)
+
+
+## Collects the altitudes where any event rate can change: the edges of the
+## mission's hazard bands and zones.
+func _prepare_rate_bands() -> void:
+	var edges: Array[float] = []
+	var bands: Array = []
+	for event_bands: Array in _mission.get("hazard_rates", {}).values():
+		bands.append_array(event_bands)
+	bands.append_array(_mission.get("hazard_zones", []))
+	for band: Dictionary in bands:
+		for key in ["inner_altitude_kilometers", "outer_altitude_kilometers"]:
+			if band.has(key) and not edges.has(float(band[key])):
+				edges.append(float(band[key]))
+	edges.sort()
+	_rate_band_edges_kilometers = PackedFloat64Array(edges)
+	_rates_by_band.clear()
+	_earliest_seconds_by_type.clear()
+	for event_type in _event_types:
+		_earliest_seconds_by_type.append(float(event_type.get("earliest_time_seconds", 0.0)))
+
+
+## The rate of every event type at an altitude, ignoring earliest_time_seconds
+## (checked separately). Between two band edges, every band and zone either
+## holds the altitude or not, so EventRates gives the same result for the whole
+## stretch: it is computed once, at the first altitude seen there.
+func _rates_at_altitude(altitude_kilometers: float) -> PackedFloat64Array:
+	var band_index := -1 if is_nan(altitude_kilometers) else _rate_band_edges_kilometers.bsearch(altitude_kilometers, false)
+	if band_index >= 0 and _rates_by_band.has(band_index):
+		return _rates_by_band[band_index]
+	var rates := PackedFloat64Array()
+	for event_type in _event_types:
+		rates.append(EventRates.effective_rate_events_per_hour(event_type, _mission, _quests, altitude_kilometers, INF))
+	if band_index >= 0:
+		_rates_by_band[band_index] = rates
+	return rates
 
 
 func _apply_event(event_type: Dictionary, time_seconds: float) -> void:
@@ -525,7 +570,7 @@ func _on_alert_scene_exiting() -> void:
 	# Clearing the current encounter invalidates both callbacks immediately.
 	_close_active_alert()
 	if _is_session_active and _flight.is_flying:
-		_flight.set_time_scale(1.0)
+		_flight.set_time_scale(FlightSimulation.NORMAL_TIME_SCALE)
 
 
 func _resume_after_alert() -> void:
@@ -533,7 +578,7 @@ func _resume_after_alert() -> void:
 	if _can_start_event(time_seconds):
 		_surface_alert(time_seconds)
 	if active_encounter.is_empty() and _flight.is_flying:
-		_flight.set_time_scale(1.0)
+		_flight.set_time_scale(FlightSimulation.NORMAL_TIME_SCALE)
 
 
 func _log_event(event_type_id: String, time_seconds: float, outcome: String, explanation: String) -> int:

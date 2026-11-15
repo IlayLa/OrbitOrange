@@ -23,6 +23,9 @@ func run_tests(report: TestReport) -> void:
 	_check_telemetry_and_science(report)
 	_check_radar(report)
 	_check_burns(report)
+	_check_batched_sampling(report)
+	_check_frame_step_cap(report)
+	_check_fuel_gauge_stops(report)
 	_check_terminal_reasons(report)
 	_check_terminal_tick_precedence(report)
 	_check_low_fuel_alarm(report)
@@ -40,7 +43,7 @@ func run_tests(report: TestReport) -> void:
 
 
 func _check_timing(report: TestReport) -> void:
-	for scale_factor in [1.0, 1000.0]:
+	for scale_factor in [500.0, 8000.0]:
 		var flight := _start_flight([], 17.5)
 		var steps: Array[float] = []
 		var results: Array[FlightResult] = []
@@ -49,7 +52,10 @@ func _check_timing(report: TestReport) -> void:
 		flight.set_time_scale(scale_factor)
 		flight._process(20.0 / scale_factor)
 		flight.advance_simulation(50.0)
-		report.check(steps == [5.0, 5.0, 5.0], "warp preserves the fixed tick cadence")
+		var expected_steps: Array[float] = []
+		for step_index in floori(17.5 / Flight.SIMULATION_STEP_SECONDS):
+			expected_steps.append(Flight.SIMULATION_STEP_SECONDS)
+		report.check(steps == expected_steps, "warp preserves the fixed tick cadence")
 		report.check(results.size() == 1, "a deadline between ticks ends the flight exactly once")
 		if results.size() == 1:
 			report.check(results[0].end_reason == FlightResult.EndReason.MISSION_COMPLETED, "deadline completes a stable flight")
@@ -63,7 +69,7 @@ func _check_timing(report: TestReport) -> void:
 	paused_flight.set_time_scale(1000.0)
 	paused_flight._process(1.0)
 	paused_flight._process(1.0)
-	report.check_close(paused_flight.simulation_time_seconds, 5.0, 0.0, "a synchronous alert stops catch-up")
+	report.check_close(paused_flight.simulation_time_seconds, Flight.SIMULATION_STEP_SECONDS, 0.0, "a synchronous alert stops catch-up")
 	report.check(observed_frames.size() == 2 and observed_frames.back().time_scale == 0.0, "paused frames still publish")
 	paused_flight.free()
 
@@ -80,15 +86,18 @@ func _check_telemetry_and_science(report: TestReport) -> void:
 	report.check(first_frame.reading(channel).value == second_frame.reading(channel).value, "same seed survives different frame grouping")
 	report.check_close(first_frame.data_generated_megabits, 200.0, 0.0001, "100 seconds of science at 2 megabits per second")
 	report.check_close(first_frame.data_delivered_megabits, 200.0, 0.0001, "instant link delivers all science")
-	first.advance_simulation(1.0)
-	report.check(first._create_telemetry_frame().reading(channel).value == first_frame.reading(channel).value, "slow sensor holds its sample")
-	first.advance_simulation(1.0)
+	# The flight moves from tick to tick (every 5 s); 5 s more reach the tick at 105 s.
+	first.advance_simulation(5.0)
+	var held_reading := first._create_telemetry_frame().reading(channel)
+	report.check(first.simulation_time_seconds == 105.0 and held_reading.sample_time_seconds == 104.0
+			and held_reading.value != first_frame.reading(channel).value,
+			"the 0.5 Hz sensor sampled at 102 s and 104 s and holds the 104 s sample at 105 s")
 	first.vehicle_state.is_working_by_instrument[TEST_ALTIMETER_ID] = false
 	first.vehicle_state.is_working_by_instrument[TEST_CAMERA_ID] = false
 	first.advance_simulation(10.0)
 	var failed_frame := first._create_telemetry_frame()
 	report.check(failed_frame.reading(channel).is_sensor_installed and not failed_frame.reading(channel).is_sensor_working, "failed sensor remains installed")
-	report.check_close(failed_frame.data_generated_megabits, 204.0, 0.0001, "failed camera stops generating data")
+	report.check_close(failed_frame.data_generated_megabits, 210.0, 0.0001, "failed camera stops generating data")
 	first.free()
 	second.free()
 
@@ -116,7 +125,7 @@ func _check_radar(report: TestReport) -> void:
 		flight.add_threat(far_threat)
 		var detections: Array[bool] = []
 		flight.simulation_step.connect(func(_seconds: float) -> void: detections.append(near_threat.is_revealed))
-		flight.advance_simulation(5.0)
+		flight.advance_simulation(Flight.SIMULATION_STEP_SECONDS)
 		var frame := flight._create_telemetry_frame()
 		report.check(detections == [true] and not far_threat.is_revealed, "radar reveals an in-range threat before the step signal")
 		report.check(frame.radar_contacts.size() == 1, "out-of-range contacts are excluded")
@@ -130,26 +139,110 @@ func _check_radar(report: TestReport) -> void:
 		flight.free()
 
 
+## Sampling a stretch of flight in one call must leave the same readings and
+## random state as sampling at every scheduled time, as the flight did when it
+## stopped at each sample.
+func _check_batched_sampling(report: TestReport) -> void:
+	var flight := _start_flight([
+		"telemetry_altimeter_precise", "telemetry_attitude_sun_sensor", "telemetry_fuel_gauge",
+		"telemetry_radar_advanced",
+	])
+	var values_at := func(time_seconds: float) -> Dictionary:
+		return {
+			TelemetryFrame.CHANNEL_ALTITUDE_METERS: 400000.0 + 10.0 * time_seconds,
+			TelemetryFrame.CHANNEL_FUEL_KILOGRAMS: 500.0 - time_seconds,
+			TelemetryFrame.CHANNEL_ATTITUDE_RADIANS: 0.01 * time_seconds,
+			TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS: 0.0,
+		}
+	var state_at := func(time_seconds: float) -> OrbitState:
+		var state := flight.craft_state.duplicate_state()
+		state.time_seconds = time_seconds
+		return state
+	var mu := float(GameData.body("earth")["gravitational_parameter_cubic_meters_per_second_squared"])
+	var no_threats: Array[Threat] = []
+	const END_SECONDS := 12.3
+	var one_by_one_random := RandomNumberGenerator.new()
+	one_by_one_random.seed = 31
+	var one_by_one := Flight.TelemetryFeed.new(flight.vehicle_state, one_by_one_random)
+	one_by_one.set_interference(0.05, 0.1)
+	var sample_count := 0
+	while one_by_one.next_sample_time_seconds() < END_SECONDS:
+		var time_seconds := one_by_one.next_sample_time_seconds()
+		one_by_one.sample(values_at.call(time_seconds), state_at.call(time_seconds), flight.vehicle_state, no_threats,
+				mu, time_seconds)
+		sample_count += 1
+	var batched_random := RandomNumberGenerator.new()
+	batched_random.seed = 31
+	var batched := Flight.TelemetryFeed.new(flight.vehicle_state, batched_random)
+	batched.set_interference(0.05, 0.1)
+	batched.sample_before(END_SECONDS,
+			func(channel: String, time_seconds: float) -> float: return values_at.call(time_seconds)[channel],
+			state_at, flight.vehicle_state, no_threats, mu)
+
+	var end_state: OrbitState = state_at.call(END_SECONDS)
+	var one_by_one_frame := TelemetryFrame.new()
+	one_by_one.fill_frame(one_by_one_frame, end_state, flight.vehicle_state, no_threats, mu)
+	var batched_frame := TelemetryFrame.new()
+	batched.fill_frame(batched_frame, end_state, flight.vehicle_state, no_threats, mu)
+	var is_same := sample_count > 60
+	for channel in one_by_one_frame.readings_by_channel:
+		var expected: TelemetryReading = one_by_one_frame.readings_by_channel[channel]
+		var actual: TelemetryReading = batched_frame.readings_by_channel[channel]
+		is_same = (is_same and expected.is_sensor_working == actual.is_sensor_working
+				and expected.value == actual.value and expected.is_sensor_installed == actual.is_sensor_installed
+				and expected.sample_time_seconds == actual.sample_time_seconds)
+	report.check(is_same, "sampling %.1f s in one call keeps every reading of %d single samples" % [END_SECONDS, sample_count])
+	report.check(one_by_one_random.state == batched_random.state, "batched sampling draws the same random numbers")
+	report.check_close(one_by_one.next_sample_time_seconds(), batched.next_sample_time_seconds(), 0.0,
+			"batched sampling leaves the same next sample time")
+	flight.free()
+
+
+## Fuel gauge samples stop the flight only while one could give the early
+## warning: never for a failed gauge, whatever the fuel.
+func _check_fuel_gauge_stops(report: TestReport) -> void:
+	var flight := _start_flight(["telemetry_fuel_gauge"], 3000.0)
+	for stage in flight.vehicle_state.design.stages:
+		flight.vehicle_state.propellant_kilograms_by_stage[stage.stage_id] = 0.2 * RocketModel.full_propellant_kilograms(stage)
+	report.check(flight._can_fuel_gauge_warn_early() and is_finite(flight._next_diagnosed_sample_time_seconds()),
+			"at 20% fuel a working gauge could warn early, so its samples stop the flight")
+	flight.vehicle_state.is_working_by_instrument["telemetry_fuel_gauge"] = false
+	report.check(not flight._can_fuel_gauge_warn_early() and flight._next_diagnosed_sample_time_seconds() == INF,
+			"a failed gauge never warns, so its samples no longer stop the flight")
+	flight.free()
+
+
+## One slow frame never asks for more than MAX_REAL_SECONDS_PER_FRAME of flight.
+func _check_frame_step_cap(report: TestReport) -> void:
+	var flight := _start_flight([], 3000.0)
+	flight._process(5.0)
+	var most_seconds := Flight.MAX_REAL_SECONDS_PER_FRAME * Flight.NORMAL_TIME_SCALE
+	report.check(flight.simulation_time_seconds > 0.0 and flight.simulation_time_seconds <= most_seconds,
+			"a 5 s frame at 1x simulates at most %.0f s (got %.1f s)" % [most_seconds, flight.simulation_time_seconds])
+	flight.free()
+
+
 func _check_burns(report: TestReport) -> void:
-	var flight := _start_flight()
+	var flight := _start_flight([], 3000.0)
 	var pulse := Pulse.new()
 	pulse.stage_id = flight.vehicle_state.design.stages[0].stage_id
 	pulse.delta_v_along_velocity_meters_per_second = 50.0
 	flight._plan.pulses.append(pulse)
 	flight._plan.pulses.append(pulse.duplicate_pulse())
 	flight._coast_segment.end_reason = TrajectorySegment.EndReason.NEXT_BURN
-	flight._coast_segment.end_time_seconds = 22.5
+	flight._coast_segment.end_time_seconds = Flight.PULSE_SLOWDOWN_LEAD_SECONDS + 22.5
 	var indices: Array[int] = []
 	var outcomes: Array[BurnOutcome] = []
 	flight.pulse_fired.connect(func(pulse_index: int, outcome: BurnOutcome) -> void:
 		indices.append(pulse_index)
 		outcomes.append(outcome))
-	flight.set_time_scale(1000.0)
+	flight.set_time_scale(8000.0)
 	flight._process(1.0)
-	report.check(flight.time_scale == 1.0, "planned pulse drops warp to normal speed")
-	report.check_close(flight.simulation_time_seconds, 12.5, 0.0001, "unused warp is discarded ten seconds before the pulse")
+	report.check(flight.time_scale == Flight.NORMAL_TIME_SCALE, "planned pulse drops warp to normal speed (1x)")
+	report.check_close(flight.simulation_time_seconds, 22.5, 0.0001,
+			"unused warp is discarded one real second at 1x (%.0f s) before the pulse" % Flight.PULSE_SLOWDOWN_LEAD_SECONDS)
 	var speed_before_meters_per_second := flight.craft_state.speed_meters_per_second()
-	flight.advance_simulation(10.0)
+	flight.advance_simulation(Flight.PULSE_SLOWDOWN_LEAD_SECONDS)
 	report.check(indices == [0] and outcomes[0].did_fire, "planned pulse fires once at its original index")
 	report.check(flight.craft_state.speed_meters_per_second() > speed_before_meters_per_second, "delivered prograde burn changes the live speed")
 	flight.pause()
@@ -338,10 +431,11 @@ func _has_low_fuel_alarm(flight: Flight) -> bool:
 
 func _check_terminal_tick_precedence(report: TestReport) -> void:
 	for has_impact in [true, false]:
-		var flight := _start_flight([], 5.0 if has_impact else 200.0)
+		# The impact and the deadline fall on the first tick.
+		var flight := _start_flight([], Flight.SIMULATION_STEP_SECONDS if has_impact else 200.0)
 		if has_impact:
 			flight._coast_segment.end_reason = TrajectorySegment.EndReason.IMPACT
-			flight._coast_segment.end_time_seconds = 5.0
+			flight._coast_segment.end_time_seconds = Flight.SIMULATION_STEP_SECONDS
 		var signal_order: Array[String] = []
 		var results: Array[FlightResult] = []
 		flight.simulation_step.connect(func(_seconds: float) -> void:

@@ -12,8 +12,9 @@ const CHANNEL_FLIGHT_PATH_ANGLE_RADIANS := "flight_path_angle_radians"
 const CHANNEL_ACCELERATION_METERS_PER_SECOND_SQUARED := "acceleration_meters_per_second_squared"
 
 var simulation_time_seconds: float = 0.0
-## 0 means paused. Otherwise simulated seconds per real second.
-var time_scale: float = 1.0
+## 0 means paused. Otherwise simulated seconds per real second, where
+## FlightSimulation.NORMAL_TIME_SCALE is what the player sees as 1x.
+var time_scale: float = FlightSimulation.NORMAL_TIME_SCALE
 ## Channel name -> TelemetryReading.
 var readings_by_channel: Dictionary = {}
 ## One Dictionary per object the radar currently sees, with the keys
