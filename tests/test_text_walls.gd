@@ -97,6 +97,9 @@ func _check_warning_lamps(report: TestReport) -> void:
 	var planning_console_script: GDScript = load("res://scripts/design/PlanningConsole.gd")
 	report.check(planning_console_script.message_line("", WarningLamps.Severity.OK) == "Ready to launch.", "no lamp sentence means ready")
 	report.check(planning_console_script.message_line("Stage 2 has no tank.", WarningLamps.Severity.BLOCKING).contains("Cannot launch"), "a blocking sentence says it blocks")
+	report.check(planning_console_script.amit_portrait_name("", WarningLamps.Severity.OK) == "", "Amit hides when no lamp is active")
+	report.check(planning_console_script.amit_portrait_name("Stage 2 has no tank.", WarningLamps.Severity.BLOCKING) == "amit_concerned", "Amit is concerned by a blocking lamp")
+	report.check(planning_console_script.amit_portrait_name("Stage 1 advice.", WarningLamps.Severity.WARNING) == "amit_judging", "Amit judges a warning lamp")
 
 
 func _check_score_groups(report: TestReport) -> void:

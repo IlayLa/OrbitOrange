@@ -36,6 +36,11 @@ const OVERVIEW_STAT_CHIP_SCREENS: Array[Rect2] = [
 ]
 ## Empty bezel above the monitors: free for the Launch button and messages.
 const OVERVIEW_TOP_BEZEL := Rect2(65, 2, 450, 76)
+## Amit's portrait plate, right of the top bezel's lamp bar and message line.
+## Only on the overview, so it may share this corner with BACK_BUTTON_RECT,
+## which is shown only while zoomed in. PlanningConsole takes x and width
+## from here and matches the top and height to the lamp bar and message line.
+const OVERVIEW_AMIT_PLATE := Rect2(517, 34, 60, 44)
 
 ## --- Rocket design screen (construction_screen.png) -------------------------
 const ROCKET_DESIGN_PREVIEW_SCREEN := Rect2(75, 60, 220, 300)

@@ -40,6 +40,18 @@ const BUTTON_FONT_SIZE_PIXELS := 10
 const BACK_BUTTON_FONT_SIZE_PIXELS := 8
 const LAMP_BAR_HEIGHT_PIXELS := 13.0
 
+## Amit reacts to the lamp under the mouse, pinned or focused: judging for a
+## warning, concerned for a problem that blocks the launch. Her portrait sits
+## on a dark plate just right of the lamp bar and the message line, as tall
+## as both, framed in the lamp's colour.
+const AMIT_PORTRAIT_FOLDER := "res://assets/art/portraits/"
+const AMIT_PORTRAIT_FOR_WARNING := "amit_judging"
+const AMIT_PORTRAIT_FOR_BLOCKING := "amit_concerned"
+## Top-left of her head and shoulders in the 128x80 sprites, drawn 1:1; the
+## crop's size is the plate's inside (ScreenLayout.OVERVIEW_AMIT_PLATE).
+const AMIT_PORTRAIT_CROP_ORIGIN := Vector2(35, 2)
+const AMIT_PLATE_BORDER_PIXELS := 1
+
 const MESSAGE_NO_MISSION := "No mission selected."
 const MESSAGE_READY := "Ready to launch."
 const MESSAGE_LAUNCHED := "The flight has started. The rocket and the plan can no longer change."
@@ -65,6 +77,11 @@ var _lamps: Array[Dictionary] = []
 ## The sentence of the lamp the player points at or pinned; "" for none.
 var _active_lamp_sentence: String = ""
 var _active_lamp_severity: int = WarningLamps.Severity.OK
+var _amit_plate: Panel
+var _amit_plate_style: StyleBoxFlat
+var _amit_portrait: TextureRect
+## Amit's cropped portraits by pose name, built once in _create_top_bezel.
+var _amit_textures: Dictionary = {}
 var _rocket_design_holder: Control
 var _rocket_design_stat_chips: StatChips
 ## True while the rocket design screen shows its Data Sources codex.
@@ -360,6 +377,33 @@ func _create_top_bezel() -> void:
 	_message_label.add_theme_stylebox_override("normal", message_style)
 	_overview.add_child(_message_label)
 
+	_amit_plate = Panel.new()
+	_amit_plate.name = "AmitPlate"
+	var plate_rect: Rect2 = ScreenLayout.OVERVIEW_AMIT_PLATE
+	# As tall as the lamp bar and the message line together.
+	_amit_plate.position = Vector2(plate_rect.position.x, lamps_top_pixels)
+	_amit_plate.size = Vector2(plate_rect.size.x, top_bezel.end.y - lamps_top_pixels)
+	_amit_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_amit_plate_style = StyleBoxFlat.new()
+	_amit_plate_style.bg_color = PixelGlyphs.COLOR_OUTLINE
+	_amit_plate_style.set_border_width_all(AMIT_PLATE_BORDER_PIXELS)
+	_amit_plate.add_theme_stylebox_override("panel", _amit_plate_style)
+	_amit_plate.hide()
+	_overview.add_child(_amit_plate)
+	_amit_portrait = TextureRect.new()
+	_amit_portrait.name = "AmitPortrait"
+	var crop_size: Vector2 = _amit_plate.size - Vector2.ONE * 2 * AMIT_PLATE_BORDER_PIXELS
+	_amit_portrait.position = Vector2.ONE * AMIT_PLATE_BORDER_PIXELS
+	_amit_portrait.size = crop_size
+	_amit_portrait.stretch_mode = TextureRect.STRETCH_KEEP
+	_amit_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_amit_plate.add_child(_amit_portrait)
+	for portrait_name in [AMIT_PORTRAIT_FOR_WARNING, AMIT_PORTRAIT_FOR_BLOCKING]:
+		var texture := AtlasTexture.new()
+		texture.atlas = load(AMIT_PORTRAIT_FOLDER + portrait_name + ".png")
+		texture.region = Rect2(AMIT_PORTRAIT_CROP_ORIGIN, crop_size)
+		_amit_textures[portrait_name] = texture
+
 
 ## A see-through button over a monitor: a light frame appears under the mouse.
 func _create_monitor_button(monitor_rect: Rect2, tooltip: String, on_pressed: Callable) -> Button:
@@ -491,3 +535,30 @@ func _on_active_lamp_changed(sentence: String, severity: int) -> void:
 	_active_lamp_sentence = sentence
 	_active_lamp_severity = severity
 	_update_message()
+	_update_amit_portrait()
+
+
+## Shows Amit while a lamp is hovered, pinned or focused; hides her otherwise.
+## Runs on every active_sentence_changed, which LampBar.set_lamps also sends,
+## so each _refresh (launch included) updates her too.
+func _update_amit_portrait() -> void:
+	if _amit_plate == null:
+		return
+	var portrait_name := amit_portrait_name(_active_lamp_sentence, _active_lamp_severity)
+	if portrait_name.is_empty() or GameState.has_launched:
+		_amit_plate.hide()
+		return
+	_amit_portrait.texture = _amit_textures[portrait_name]
+	_amit_plate_style.border_color = PixelGlyphs.lamp_color(_active_lamp_severity)
+	_amit_plate.show()
+
+
+## Amit's pose for the active lamp: "" when no lamp is active.
+static func amit_portrait_name(sentence: String, severity: int) -> String:
+	if sentence.is_empty():
+		return ""
+	if severity == WarningLamps.Severity.BLOCKING:
+		return AMIT_PORTRAIT_FOR_BLOCKING
+	if severity == WarningLamps.Severity.WARNING:
+		return AMIT_PORTRAIT_FOR_WARNING
+	return ""
