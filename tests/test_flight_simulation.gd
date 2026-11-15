@@ -26,6 +26,7 @@ func run_tests(report: TestReport) -> void:
 	_check_batched_sampling(report)
 	_check_frame_step_cap(report)
 	_check_fuel_gauge_stops(report)
+	_check_motion_steps(report)
 	_check_terminal_reasons(report)
 	_check_terminal_tick_precedence(report)
 	_check_low_fuel_alarm(report)
@@ -204,6 +205,19 @@ func _check_fuel_gauge_stops(report: TestReport) -> void:
 	flight.vehicle_state.is_working_by_instrument["telemetry_fuel_gauge"] = false
 	report.check(not flight._can_fuel_gauge_warn_early() and flight._next_diagnosed_sample_time_seconds() == INF,
 			"a failed gauge never warns, so its samples no longer stop the flight")
+	flight.free()
+
+
+## The craft moves every MOTION_STEP_SECONDS, while events still tick every
+## SIMULATION_STEP_SECONDS.
+func _check_motion_steps(report: TestReport) -> void:
+	var flight := _start_flight([], 3000.0)
+	var steps: Array[float] = []
+	flight.simulation_step.connect(func(seconds: float) -> void: steps.append(seconds))
+	flight.advance_simulation(7.5)
+	report.check(flight.simulation_time_seconds == 7.0 and steps == [Flight.SIMULATION_STEP_SECONDS],
+			"7.5 s of flight moves the craft to 7 s in 1 s steps and ticks events once (%.2f s, %s)" % [
+				flight.simulation_time_seconds, steps])
 	flight.free()
 
 

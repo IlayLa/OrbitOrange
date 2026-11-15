@@ -13,6 +13,9 @@ signal flight_started
 signal flight_ended(result: FlightResult)
 
 const SIMULATION_STEP_SECONDS := 5.0
+## The craft, its science and what the screen shows move at least this often,
+## between the SIMULATION_STEP_SECONDS ticks that drive events and faults.
+const MOTION_STEP_SECONDS := 1.0
 ## Simulated seconds per real second at normal speed, shown to the player as
 ## "1x". Flights start at this speed and drop back to it before planned pulses
 ## and after alerts.
@@ -76,6 +79,7 @@ var _has_reported_early_fuel_warning: bool = false
 var _burn_diagnostic: Dictionary = {}
 var _mission_duration_seconds: float = 0.0
 var _next_step_time_seconds: float = SIMULATION_STEP_SECONDS
+var _next_motion_time_seconds: float = MOTION_STEP_SECONDS
 var _seconds_not_yet_simulated: float = 0.0
 var _has_reached_stable_orbit: bool = false
 var _launch_failure_explanation: String = ""
@@ -125,6 +129,7 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	event_log = []
 	simulation_time_seconds = 0.0
 	_next_step_time_seconds = SIMULATION_STEP_SECONDS
+	_next_motion_time_seconds = MOTION_STEP_SECONDS
 	_seconds_not_yet_simulated = 0.0
 	time_scale = NORMAL_TIME_SCALE
 	_configure_science(mission)
@@ -251,6 +256,7 @@ func advance_simulation(seconds: float) -> void:
 		if time_scale > NORMAL_TIME_SCALE and is_finite(pulse_time_seconds):
 			slowdown_time_seconds = maxf(simulation_time_seconds, pulse_time_seconds - PULSE_SLOWDOWN_LEAD_SECONDS)
 		var boundary_time_seconds := minf(_next_step_time_seconds, _mission_duration_seconds)
+		boundary_time_seconds = minf(boundary_time_seconds, _next_motion_time_seconds)
 		boundary_time_seconds = minf(boundary_time_seconds, _launch_stage_ends_at_seconds)
 		boundary_time_seconds = minf(boundary_time_seconds, _terminal_boundary_time_seconds())
 		boundary_time_seconds = minf(boundary_time_seconds, pulse_time_seconds)
@@ -267,6 +273,8 @@ func advance_simulation(seconds: float) -> void:
 		_seconds_not_yet_simulated = maxf(0.0, _seconds_not_yet_simulated - elapsed_seconds)
 		_sample_instruments_before(boundary_time_seconds)
 		_advance_to(boundary_time_seconds)
+		while _next_motion_time_seconds <= simulation_time_seconds:
+			_next_motion_time_seconds += MOTION_STEP_SECONDS
 		var did_slow_down := boundary_time_seconds == slowdown_time_seconds
 		if did_slow_down:
 			time_scale = NORMAL_TIME_SCALE
