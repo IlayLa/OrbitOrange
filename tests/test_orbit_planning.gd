@@ -37,6 +37,8 @@ func _check_mapping_and_arrows(report: TestReport) -> void:
 
 
 func _check_editing(report: TestReport) -> void:
+	var saved_has_launched: bool = GameState.has_launched
+	GameState.has_launched = false
 	var saved_mission: Dictionary = GameState.mission
 	var saved_design: RocketDesign = GameState.design
 	var saved_plan: MissionPlan = GameState.plan
@@ -116,11 +118,26 @@ func _check_editing(report: TestReport) -> void:
 		screen.call("_input", delete_key)
 		report.check(GameState.plan.pulses.size() == 1, "Delete inside the numeric editor does not delete the selected pulse")
 		number.get_line_edit().release_focus()
+		GameState.has_launched = true
+		screen.call("_refresh")
+		var original_request_meters_per_second: float = GameState.plan.pulses[0].requested_delta_v_meters_per_second()
+		var original_angle_radians: float = GameState.plan.launch_angle_radians
+		screen.call("_on_magnitude_changed", 999.0)
+		screen.call("_on_launch_angle_changed", 45.0)
+		screen.call("_delete_selected")
+		screen.call("_add_pulse", point_pixels)
+		report.check(GameState.plan.pulses.size() == 1 and GameState.plan.pulses[0].requested_delta_v_meters_per_second() == original_request_meters_per_second
+				and GameState.plan.launch_angle_radians == original_angle_radians, "orbit edits respect T06's launched-plan lock")
+		report.check(screen.get("_add_button").disabled and screen.get("_delete_button").disabled,
+				"pulse editing controls are disabled after launch")
+		GameState.has_launched = false
+		screen.call("_refresh")
 		screen.call("_delete_selected")
 		screen.call("_process", 0.0)
 		report.check(GameState.plan.pulses.is_empty(), "the delete control removes the selected pulse")
 	root.remove_child(screen)
 	screen.free()
+	GameState.has_launched = saved_has_launched
 	GameState.mission = saved_mission
 	GameState.design = saved_design
 	GameState.plan = saved_plan

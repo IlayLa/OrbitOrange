@@ -4,79 +4,328 @@ extends Control
 ## into the rocket design screen and the orbit planning screen.
 ## Requirements: context/plan_draft.md, section "PLANNING half".
 ##
-## STUB(T06): shows the overview mock-up, a live orbit monitor, one button
-## that builds an example rocket. T05 supplies orbit-editor access, Back and shared chips; rocket construction remains T06.
-## T06 replaces this file.
+## Structure:
+##   overview layer      background, the two monitors, chips, Launch, messages
+##   two detail holders  each holds one detail scene plus its own stat chips;
+##                       ZoomTransition grows a holder from its monitor
+##   back button         in ScreenLayout.BACK_BUTTON_RECT, only while zoomed
+## Everything shown comes from GameState.summary and GameState.trajectory and
+## is redrawn when GameState.derived_changed arrives.
+## ScreenLayout.CONSOLE_SWITCH_RECT is left empty: Console draws its switch there.
+
+enum Screen { OVERVIEW, ROCKET_DESIGN, ORBIT_PLANNING }
+
+const ROCKET_DESIGN_SCENE := preload("res://scenes/planning/RocketDesign.tscn")
+const ORBIT_PLANNING_SCENE := preload("res://scenes/planning/OrbitPlanning.tscn")
+
+## Chips of the rocket design screen: the bezel above the part list and the
+## tabs, which the mock-up leaves empty. Clear of CONSOLE_SWITCH_RECT.
+const ROCKET_DESIGN_STAT_CHIP_RECTS: Array[Rect2] = [
+	Rect2(300, 6, 68, 38),
+	Rect2(372, 6, 68, 38),
+	Rect2(444, 6, 72, 38),
+]
+const LAUNCH_BUTTON_SIZE := Vector2(84, 28)
+const EXAMPLE_BUTTON_SIZE := Vector2(132, 28)
+const PLAN_BUTTON_SIZE := Vector2(96, 28)
+const BUTTON_GAP_PIXELS := 6.0
+const MESSAGE_FONT_SIZE_PIXELS := 8
+const BUTTON_FONT_SIZE_PIXELS := 10
+const BACK_BUTTON_FONT_SIZE_PIXELS := 8
+## Scale of the orbit view on the small overview monitor.
+const OVERVIEW_BODY_RADIUS_PIXELS := 45.0
+const OVERVIEW_PIXELS_PER_KILOMETER := 0.05
+
+const MESSAGE_NO_MISSION := "No mission selected."
+const MESSAGE_READY := "Ready to launch."
+const MESSAGE_LAUNCHED := "The flight has started. The rocket and the plan can no longer change."
+const HINT_ZOOM := "Click a monitor to open it."
+
+## The screen shown now, or the one a running zoom is moving to.
+var current_screen: Screen = Screen.OVERVIEW
+## Length of the zoom animation. Zero switches at once (used by the tests).
+var zoom_duration_seconds: float = ZoomTransition.DEFAULT_DURATION_SECONDS
+var launch_button: Button
+var overview_stat_chips: StatChips
+var rocket_design_screen: Control
+var orbit_planning_screen: Control
+var back_button: Button
 
 var _overview: Control
-var _orbit_planning: Control
-var _planning_stats: Control
-var _back_button: Button
-var _chip_labels: Array[Label] = []
-var _overview_chip_labels: Array[Label] = []
-var _rocket_preview: Control
-var _stage_summary: Label
-
+var _rocket_monitor_preview: RocketStackPreview
 var _orbit_monitor: OrbitView
-var _status_label: Label
-var _launch_button: Button
+var _message_label: RichTextLabel
+var _rocket_design_holder: Control
+var _orbit_planning_holder: Control
+var _all_stat_chips: Array[StatChips] = []
+var _input_blocker: Control
+var _is_zoom_running: bool = false
 
 
 func _ready() -> void:
+	# The layout is fixed to the mock-ups, so it must not mirror itself on a
+	# computer whose language is written right to left.
+	layout_direction = Control.LAYOUT_DIRECTION_LTR
 	size = ScreenLayout.SCREEN_SIZE
-	theme = PlanningStyle.create_theme()
+	clip_contents = true
+
+	_create_overview()
+
+	rocket_design_screen = ROCKET_DESIGN_SCENE.instantiate()
+	_rocket_design_holder = _create_detail_holder(rocket_design_screen, ROCKET_DESIGN_STAT_CHIP_RECTS, true)
+	orbit_planning_screen = ORBIT_PLANNING_SCENE.instantiate()
+	_orbit_planning_holder = _create_detail_holder(
+			orbit_planning_screen, ScreenLayout.ORBIT_PLANNING_STAT_CHIP_SCREENS, false)
+
+	back_button = Button.new()
+	back_button.text = "< BACK"
+	back_button.tooltip_text = "Back to the overview (Esc)"
+	back_button.position = ScreenLayout.BACK_BUTTON_RECT.position
+	back_button.focus_mode = Control.FOCUS_NONE
+	# The rectangle is only 22 pixels high, so the text is one size smaller.
+	back_button.add_theme_font_size_override("font_size", BACK_BUTTON_FONT_SIZE_PIXELS)
+	back_button.pressed.connect(zoom_back_to_overview)
+	back_button.hide()
+	add_child(back_button)
+	_set_size_when_font_is_known(back_button, ScreenLayout.BACK_BUTTON_RECT.size)
+
+	# Catches every click while a zoom animation runs.
+	_input_blocker = Control.new()
+	_input_blocker.size = ScreenLayout.SCREEN_SIZE
+	_input_blocker.mouse_filter = Control.MOUSE_FILTER_STOP
+	_input_blocker.hide()
+	add_child(_input_blocker)
+
+	GameState.derived_changed.connect(_refresh)
+	# Launching changes no summary, so it sends no derived_changed of its own.
+	GameState.launch_requested.connect(_refresh)
+	_refresh()
+
+
+func zoom_into_rocket_design() -> void:
+	_zoom_into(Screen.ROCKET_DESIGN)
+
+
+func zoom_into_orbit_planning() -> void:
+	_zoom_into(Screen.ORBIT_PLANNING)
+
+
+## Returns from a detail screen to the overview. Does nothing on the overview
+## or while a zoom animation runs.
+func zoom_back_to_overview() -> void:
+	if current_screen == Screen.OVERVIEW or _is_zoom_running:
+		return
+	var holder: Control = _holder_of(current_screen)
+	var monitor_rect: Rect2 = _monitor_rect_of(current_screen)
+	current_screen = Screen.OVERVIEW
+	back_button.hide()
+	_run_zoom(ZoomTransition.zoom_out(holder, _overview, monitor_rect, zoom_duration_seconds))
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if current_screen == Screen.OVERVIEW or not is_on_screen():
+		return
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		zoom_back_to_overview()
+
+
+## False while the console shell shows the EXECUTION half: Console slides this
+## scene out of the window but never hides it, so visibility alone cannot tell.
+func is_on_screen() -> bool:
+	if not is_visible_in_tree():
+		return false
+	return get_global_rect().intersects(get_viewport_rect())
+
+
+func _zoom_into(target_screen: Screen) -> void:
+	if current_screen != Screen.OVERVIEW or _is_zoom_running:
+		return
+	current_screen = target_screen
+	var zoom_tween: Tween = ZoomTransition.zoom_in(
+			_holder_of(target_screen), _overview, _monitor_rect_of(target_screen), zoom_duration_seconds)
+	_run_zoom(zoom_tween)
+
+
+## Blocks input until the tween ends. A null tween means the zoom is already done.
+func _run_zoom(zoom_tween: Tween) -> void:
+	if zoom_tween == null:
+		_on_zoom_finished()
+		return
+	_is_zoom_running = true
+	_input_blocker.show()
+	zoom_tween.finished.connect(_on_zoom_finished)
+
+
+func _on_zoom_finished() -> void:
+	_is_zoom_running = false
+	_input_blocker.hide()
+	back_button.visible = current_screen != Screen.OVERVIEW
+
+
+## A Button cannot be made smaller than its text, and it measures its text
+## with the small font only after the theme has been applied, which Godot does
+## at the end of the frame. So the size is set now and once more, deferred.
+func _set_size_when_font_is_known(button: Button, wanted_size: Vector2) -> void:
+	button.size = wanted_size
+	button.set_deferred("size", wanted_size)
+
+
+func _holder_of(screen: Screen) -> Control:
+	if screen == Screen.ROCKET_DESIGN:
+		return _rocket_design_holder
+	return _orbit_planning_holder
+
+
+func _monitor_rect_of(screen: Screen) -> Rect2:
+	if screen == Screen.ROCKET_DESIGN:
+		return ScreenLayout.OVERVIEW_ROCKET_MONITOR_SCREEN
+	return ScreenLayout.OVERVIEW_ORBIT_MONITOR_SCREEN
+
+
+func _create_overview() -> void:
 	_overview = Control.new()
-	_overview.size = size
+	_overview.size = ScreenLayout.SCREEN_SIZE
+	_overview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_overview)
 
 	var background := TextureRect.new()
 	background.name = "AmitPlanningBackground"
 	background.texture = load(ScreenLayout.PLANNING_OVERVIEW_BACKGROUND_PATH)
+	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	background.stretch_mode = TextureRect.STRETCH_SCALE
-	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	background.size = ScreenLayout.SCREEN_SIZE
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_overview.add_child(background)
 
-	_orbit_monitor = OrbitView.new()
-	_orbit_monitor.position = ScreenLayout.OVERVIEW_ORBIT_MONITOR_SCREEN.position
-	_orbit_monitor.size = ScreenLayout.OVERVIEW_ORBIT_MONITOR_SCREEN.size
-	_orbit_monitor.clip_contents = true
-	_overview.add_child(_orbit_monitor)
+	var rocket_monitor_rect: Rect2 = ScreenLayout.OVERVIEW_ROCKET_MONITOR_SCREEN
+	_rocket_monitor_preview = RocketStackPreview.new()
+	_rocket_monitor_preview.is_interactive = false
+	_rocket_monitor_preview.position = rocket_monitor_rect.position
+	_rocket_monitor_preview.size = rocket_monitor_rect.size
+	_overview.add_child(_rocket_monitor_preview)
+	_overview.add_child(_create_monitor_button(
+			rocket_monitor_rect, "Open the rocket design screen", zoom_into_rocket_design))
 
+	var orbit_monitor_rect: Rect2 = ScreenLayout.OVERVIEW_ORBIT_MONITOR_SCREEN
+	_orbit_monitor = OrbitView.new()
+	_orbit_monitor.position = orbit_monitor_rect.position
+	_orbit_monitor.size = orbit_monitor_rect.size
+	_orbit_monitor.clip_contents = true
+	_orbit_monitor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overview.add_child(_orbit_monitor)
+	_overview.add_child(_create_monitor_button(
+			orbit_monitor_rect, "Open the orbit planning screen", zoom_into_orbit_planning))
+
+	overview_stat_chips = StatChips.new()
+	overview_stat_chips.configure(ScreenLayout.OVERVIEW_STAT_CHIP_SCREENS, false)
+	_overview.add_child(overview_stat_chips)
+	_all_stat_chips.append(overview_stat_chips)
+
+	_create_top_bezel()
+
+
+func _create_top_bezel() -> void:
 	var top_bezel: Rect2 = ScreenLayout.OVERVIEW_TOP_BEZEL
 
+	launch_button = Button.new()
+	launch_button.text = "LAUNCH"
+	launch_button.position = top_bezel.position + Vector2(0, 2)
+	launch_button.focus_mode = Control.FOCUS_NONE
+	launch_button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE_PIXELS)
+	launch_button.add_theme_color_override("font_color", ScreenLayout.COLOR_ACCENT_ORANGE)
+	launch_button.pressed.connect(_on_launch_pressed)
+	_overview.add_child(launch_button)
+	_set_size_when_font_is_known(launch_button, LAUNCH_BUTTON_SIZE)
+
 	var example_rocket_button := Button.new()
-	example_rocket_button.theme = theme
-	example_rocket_button.text = "Load example rocket"
-	example_rocket_button.position = top_bezel.position
-	example_rocket_button.size = Vector2(170, 26)
+	example_rocket_button.text = "Build example rocket"
+	example_rocket_button.tooltip_text = "Replaces the rocket and the plan with a worked example that reaches orbit"
+	example_rocket_button.position = launch_button.position + Vector2(LAUNCH_BUTTON_SIZE.x + BUTTON_GAP_PIXELS, 0)
+	example_rocket_button.focus_mode = Control.FOCUS_NONE
+	example_rocket_button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE_PIXELS)
 	example_rocket_button.pressed.connect(_on_build_example_rocket_pressed)
 	_overview.add_child(example_rocket_button)
+	_set_size_when_font_is_known(example_rocket_button, EXAMPLE_BUTTON_SIZE)
 
-	_launch_button = Button.new()
-	_launch_button.theme = theme
-	_launch_button.text = "LAUNCH"
-	_launch_button.position = top_bezel.position + Vector2(180, 0)
-	_launch_button.size = Vector2(90, 26)
-	_launch_button.pressed.connect(_on_launch_pressed)
-	_overview.add_child(_launch_button)
+	var buttons_right_pixels: float = example_rocket_button.position.x + EXAMPLE_BUTTON_SIZE.x + BUTTON_GAP_PIXELS
+	var plan_button := Button.new()
+	plan_button.text = "Plan flight"
+	plan_button.position = Vector2(buttons_right_pixels, launch_button.position.y)
+	plan_button.focus_mode = Control.FOCUS_NONE
+	plan_button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE_PIXELS)
+	plan_button.pressed.connect(zoom_into_orbit_planning)
+	_overview.add_child(plan_button)
+	_set_size_when_font_is_known(plan_button, PLAN_BUTTON_SIZE)
+	buttons_right_pixels += PLAN_BUTTON_SIZE.x + BUTTON_GAP_PIXELS
+	var hint_label := Label.new()
+	hint_label.text = HINT_ZOOM
+	hint_label.position = Vector2(buttons_right_pixels, top_bezel.position.y + 2)
+	hint_label.size = Vector2(top_bezel.end.x - buttons_right_pixels, LAUNCH_BUTTON_SIZE.y)
+	hint_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint_label.clip_text = true
+	hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hint_label.add_theme_font_size_override("font_size", MESSAGE_FONT_SIZE_PIXELS)
+	hint_label.add_theme_color_override("font_color", ScreenLayout.COLOR_SPACE_BLACK)
+	_overview.add_child(hint_label)
 
-	_status_label = Label.new()
-	_status_label.position = top_bezel.position + Vector2(0, 30)
-	_status_label.size = Vector2(top_bezel.size.x, 44)
-	_status_label.add_theme_font_size_override("font_size", 9 if _chip_labels.size() == 2 else 10)
-	_overview.add_child(_status_label)
+	var messages_top_pixels: float = launch_button.position.y + LAUNCH_BUTTON_SIZE.y + 2.0
+	_message_label = RichTextLabel.new()
+	_message_label.bbcode_enabled = true
+	_message_label.position = Vector2(top_bezel.position.x, messages_top_pixels)
+	_message_label.size = Vector2(top_bezel.size.x, top_bezel.end.y - messages_top_pixels)
+	_message_label.scroll_active = true
+	_message_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_message_label.add_theme_font_size_override("normal_font_size", MESSAGE_FONT_SIZE_PIXELS)
+	_message_label.add_theme_constant_override("line_separation", -1)
+	var message_style := StyleBoxFlat.new()
+	message_style.bg_color = Color(ScreenLayout.COLOR_SPACE_BLACK, 0.55)
+	message_style.set_content_margin_all(2)
+	_message_label.add_theme_stylebox_override("normal", message_style)
+	_overview.add_child(_message_label)
 
-	_create_overview_visuals()
-	_create_orbit_access()
-	GameState.derived_changed.connect(_refresh)
-	_refresh()
+
+## A see-through button over a monitor: a light frame appears under the mouse.
+func _create_monitor_button(monitor_rect: Rect2, tooltip: String, on_pressed: Callable) -> Button:
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color(ScreenLayout.COLOR_TEXT_LIGHT, 0.08)
+	hover_style.border_color = ScreenLayout.COLOR_ACCENT_ORANGE
+	hover_style.set_border_width_all(2)
+	var empty_style := StyleBoxEmpty.new()
+
+	var monitor_button := Button.new()
+	monitor_button.position = monitor_rect.position
+	monitor_button.size = monitor_rect.size
+	monitor_button.tooltip_text = tooltip
+	monitor_button.focus_mode = Control.FOCUS_NONE
+	monitor_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	monitor_button.add_theme_stylebox_override("normal", empty_style)
+	monitor_button.add_theme_stylebox_override("hover", hover_style)
+	monitor_button.add_theme_stylebox_override("pressed", hover_style)
+	monitor_button.pressed.connect(on_pressed)
+	return monitor_button
+
+
+## Wraps a detail scene and its stat chips in one Control that ZoomTransition
+## moves and scales. Hidden until the player zooms in.
+func _create_detail_holder(detail_screen: Control, chip_rects: Array[Rect2], draws_chip_background: bool) -> Control:
+	var holder := Control.new()
+	holder.size = ScreenLayout.SCREEN_SIZE
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.hide()
+	add_child(holder)
+	holder.add_child(detail_screen)
+
+	var stat_chips := StatChips.new()
+	stat_chips.configure(chip_rects, draws_chip_background)
+	holder.add_child(stat_chips)
+	_all_stat_chips.append(stat_chips)
+	return holder
 
 
 func _on_build_example_rocket_pressed() -> void:
-	if GameState.mission.is_empty():
+	if GameState.mission.is_empty() or GameState.has_launched:
 		return
 	ExampleFlight.fill_automatic_flight(GameState.design, GameState.plan)
 	GameState.notify_design_changed()
@@ -84,183 +333,62 @@ func _on_build_example_rocket_pressed() -> void:
 
 
 func _on_launch_pressed() -> void:
+	# One flight per game: a second launch would restart the flight in the air.
+	if GameState.has_launched:
+		return
 	GameState.request_launch()
 
 
 func _refresh() -> void:
 	var summary: PlanSummary = GameState.summary
+	for stat_chips in _all_stat_chips:
+		stat_chips.refresh(summary, GameState.budget_million_usd)
+	_rocket_monitor_preview.show_design(GameState.design)
+
 	if summary == null:
-		_status_label.text = "No mission selected."
-		_launch_button.disabled = true
+		launch_button.disabled = true
+		launch_button.tooltip_text = MESSAGE_NO_MISSION
+		_message_label.text = MESSAGE_NO_MISSION
 		return
 
 	# The Launch button is disabled only when the rocket cannot fly at all.
 	# Going over budget is allowed; it costs score points instead.
 	# Advice ("Warning: ...") is shown but does not block it.
-	_launch_button.disabled = not summary.blocking_problems.is_empty()
-	var explanation: String = summary.blocking_problems[0] if not summary.blocking_problems.is_empty() else "Open Plan flight to place manoeuvres, then launch."
-	if summary.ascent != null and summary.ascent.failure_reason != "":
-		explanation = summary.ascent.failure_reason
-	_status_label.text = str(GameState.mission.get("name", "Mission")) + "\n" + explanation
-	_rocket_preview.queue_redraw()
-	var stage_lines := PackedStringArray()
-	for stage_index in GameState.design.stages.size():
-		var stage: Stage = GameState.design.stages[stage_index]
-		stage_lines.append("%d  %s\n%s" % [stage_index + 1,
-				str(GameData.part(stage.engine_part_id).get("name", "Engine")).split("(")[0].strip_edges(),
-				"Solid" if SequentialPropulsion.is_solid(stage) else "Liquid"])
-	_stage_summary.text = "STAGE ORDER\n\n" + "\n\n".join(stage_lines)
-	if _overview_chip_labels.size() == 3:
-		_overview_chip_labels[0].text = "COST\n$%.1fM" % summary.cost_million_usd
-		_overview_chip_labels[1].text = "TOTAL Δv\n%.0f m/s" % summary.total_delta_v_meters_per_second
-		_overview_chip_labels[2].text = "LAUNCH MASS\n%.0f kg" % summary.wet_mass_kilograms
+	# After the launch it is disabled too, because the flight is already running.
+	var blocking_problems: Array[String] = summary.blocking_problems
+	launch_button.disabled = GameState.has_launched or not blocking_problems.is_empty()
+	if GameState.has_launched:
+		launch_button.tooltip_text = MESSAGE_LAUNCHED
+		_message_label.text = MESSAGE_LAUNCHED
+	elif blocking_problems.is_empty():
+		launch_button.tooltip_text = "Start the flight"
+		_message_label.text = _message_text(summary)
+	else:
+		launch_button.tooltip_text = "Cannot launch: " + " ".join(PackedStringArray(blocking_problems))
+		_message_label.text = _message_text(summary)
 
-	if _chip_labels.size() == 3:
-		_chip_labels[0].text = "COST\n$%.1fM / $%.1fM" % [summary.cost_million_usd, GameState.budget_million_usd]
-		_chip_labels[1].text = "TOTAL Δv\n%.0f m/s" % summary.total_delta_v_meters_per_second
-		_chip_labels[2].text = "LAUNCH MASS\n%.0f kg wet / %.0f kg dry" % [summary.wet_mass_kilograms, summary.dry_mass_kilograms]
+	# OrbitView scales the complete mission itself, keeping its rings and zones.
 	_orbit_monitor.configure(GameData.body(GameState.mission.get("body_id", "earth")), GameState.mission)
-	_orbit_monitor.show_trajectory(GameState.trajectory)
+	# A rocket that cannot leave the pad has a path of zero length, which
+	# OrbitView cannot draw without engine warnings. The monitor then shows
+	# the body alone.
+	var has_flight_path: bool = summary.burnout_speed_meters_per_second > 0.0
+	_orbit_monitor.show_trajectory(GameState.trajectory if has_flight_path else null)
 
 
-func _create_orbit_access() -> void:
-	var monitor_button := Button.new()
-	monitor_button.position = ScreenLayout.OVERVIEW_ORBIT_MONITOR_SCREEN.position
-	monitor_button.size = ScreenLayout.OVERVIEW_ORBIT_MONITOR_SCREEN.size
-	monitor_button.flat = true
-	monitor_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	monitor_button.add_theme_stylebox_override("hover", PlanningStyle.panel_style(Color(0, 0, 0, 0), ScreenLayout.COLOR_ACCENT_ORANGE))
-	monitor_button.add_theme_stylebox_override("pressed", PlanningStyle.panel_style(Color(0, 0, 0, 0), ScreenLayout.COLOR_ACCENT_ORANGE))
-	monitor_button.tooltip_text = "Open flight planner"
-	monitor_button.pressed.connect(_open_orbit_planning)
-	_overview.add_child(monitor_button)
-	var plan_button := Button.new()
-	plan_button.theme = theme
-	plan_button.text = "Plan flight"
-	plan_button.position = ScreenLayout.OVERVIEW_TOP_BEZEL.position + Vector2(280, 0)
-	plan_button.size = Vector2(140, 26)
-	plan_button.pressed.connect(_open_orbit_planning)
-	_overview.add_child(plan_button)
-	_orbit_planning = load("res://scenes/planning/OrbitPlanning.tscn").instantiate()
-	_orbit_planning.hide()
-	add_child(_orbit_planning)
-	_planning_stats = Control.new()
-	_planning_stats.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_planning_stats.size = ScreenLayout.SCREEN_SIZE
-	_planning_stats.hide()
-	add_child(_planning_stats)
-	for rectangle in ScreenLayout.ORBIT_PLANNING_STAT_CHIP_SCREENS:
-		var backing := ColorRect.new()
-		backing.position = rectangle.position
-		backing.size = rectangle.size
-		backing.color = ScreenLayout.COLOR_SPACE_BLACK
-		backing.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_planning_stats.add_child(backing)
-		var label := Label.new()
-		label.position = rectangle.position + Vector2(8, 3)
-		label.size = rectangle.size - Vector2(16, 6)
-		label.add_theme_font_size_override("font_size", 10)
-		label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_planning_stats.add_child(label)
-		_chip_labels.append(label)
-	_back_button = Button.new()
-	_back_button.theme = theme
-	_back_button.text = "Back"
-	_back_button.position = ScreenLayout.BACK_BUTTON_RECT.position
-	_back_button.size = ScreenLayout.BACK_BUTTON_RECT.size
-	_back_button.add_theme_font_size_override("font_size", 10)
-	_back_button.pressed.connect(_show_overview)
-	_back_button.hide()
-	add_child(_back_button)
+## Blocking problems first, in red, then the other sentences of warnings.
+func _message_text(summary: PlanSummary) -> String:
+	var lines: Array[String] = []
+	var red_code: String = ScreenLayout.COLOR_WARNING_RED.to_html(false)
+	for blocking_problem in summary.blocking_problems:
+		lines.append("[color=#%s]Cannot launch: %s[/color]" % [red_code, _escape_bbcode(blocking_problem)])
+	for warning in summary.warnings:
+		if not summary.blocking_problems.has(warning):
+			lines.append(_escape_bbcode(warning))
+	if lines.is_empty():
+		lines.append(MESSAGE_READY)
+	return "\n".join(PackedStringArray(lines))
 
 
-func _open_orbit_planning() -> void:
-	_overview.hide()
-	_orbit_planning.show()
-	_planning_stats.show()
-	_back_button.show()
-	_refresh()
-
-
-func _show_overview() -> void:
-	_orbit_planning.hide()
-	_planning_stats.hide()
-	_back_button.hide()
-	_overview.show()
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if _orbit_planning != null and _orbit_planning.is_visible_in_tree() and event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
-		_show_overview()
-		get_viewport().set_input_as_handled()
-
-
-func _create_overview_visuals() -> void:
-	var heading := Label.new()
-	heading.text = "PLAN"
-	heading.position = Vector2(16, 8)
-	heading.add_theme_font_size_override("font_size", 12)
-	heading.modulate = Color("#183752")
-	_overview.add_child(heading)
-	var rocket_caption := Label.new()
-	rocket_caption.text = "VEHICLE"
-	rocket_caption.position = Vector2(80, 78)
-	rocket_caption.add_theme_font_size_override("font_size", 10)
-	rocket_caption.modulate = Color("#183752")
-	_overview.add_child(rocket_caption)
-	_rocket_preview = Control.new()
-	_rocket_preview.position = ScreenLayout.OVERVIEW_ROCKET_MONITOR_SCREEN.position
-	_rocket_preview.size = ScreenLayout.OVERVIEW_ROCKET_MONITOR_SCREEN.size
-	_rocket_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_rocket_preview.draw.connect(_draw_rocket_preview)
-	_overview.add_child(_rocket_preview)
-	_stage_summary = Label.new()
-	_stage_summary.position = ScreenLayout.OVERVIEW_PARTS_COLUMN.position + Vector2(3, 2)
-	_stage_summary.size = ScreenLayout.OVERVIEW_PARTS_COLUMN.size - Vector2(6, 4)
-	_stage_summary.add_theme_font_size_override("font_size", 8)
-	_stage_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_stage_summary.modulate = Color("#10263c")
-	_overview.add_child(_stage_summary)
-	var trajectory_caption := Label.new()
-	trajectory_caption.text = "ORBIT MONITOR · CLICK TO PLAN"
-	trajectory_caption.position = Vector2(350, 153)
-	trajectory_caption.add_theme_font_size_override("font_size", 10)
-	trajectory_caption.modulate = Color("#183752")
-	_overview.add_child(trajectory_caption)
-	for rectangle in ScreenLayout.OVERVIEW_STAT_CHIP_SCREENS:
-		var panel := ColorRect.new()
-		panel.position = rectangle.position
-		panel.size = rectangle.size
-		panel.color = ScreenLayout.COLOR_SPACE_BLACK
-		panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_overview.add_child(panel)
-		var label := Label.new()
-		label.position = rectangle.position + Vector2(6, 4)
-		label.size = rectangle.size - Vector2(12, 8)
-		label.add_theme_font_size_override("font_size", 9)
-		_overview.add_child(label)
-		_overview_chip_labels.append(label)
-
-
-func _draw_rocket_preview() -> void:
-	var drawing_size: Vector2 = _rocket_preview.size
-	var font: Font = ThemeDB.fallback_font
-	if GameState.design.stages.is_empty():
-		_rocket_preview.draw_string(font, Vector2(14, 90), "No rocket loaded", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, Color("#93aebf"))
-		return
-	var height_pixels: float = minf(44.0, 145.0 / float(GameState.design.stages.size()))
-	var bottom_pixels: float = drawing_size.y - 24.0
-	for stage_index in GameState.design.stages.size():
-		var stage: Stage = GameState.design.stages[stage_index]
-		var width_pixels: float = maxf(34.0, 66.0 - float(stage_index) * 6.0)
-		var rectangle := Rect2((drawing_size.x - width_pixels) / 2.0, bottom_pixels - height_pixels, width_pixels, height_pixels - 5.0)
-		var color: Color = OrbitView.stage_color(stage.stage_id)
-		_rocket_preview.draw_rect(rectangle, color.darkened(0.7))
-		_rocket_preview.draw_rect(rectangle, color, false, 1.0)
-		_rocket_preview.draw_string(font, rectangle.position + Vector2(10, height_pixels * 0.5), "STAGE %d" % (stage_index + 1), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 9, color)
-		var nozzle_center := Vector2(drawing_size.x / 2.0, bottom_pixels - 4.0)
-		_rocket_preview.draw_colored_polygon(PackedVector2Array([nozzle_center + Vector2(-7, 0), nozzle_center + Vector2(7, 0),
-				nozzle_center + Vector2(11, 6), nozzle_center + Vector2(-11, 6)]), Color("#8da4b6"))
-		bottom_pixels -= height_pixels
-	_rocket_preview.draw_colored_polygon(PackedVector2Array([Vector2(drawing_size.x / 2.0 - 23, bottom_pixels),
-			Vector2(drawing_size.x / 2.0, bottom_pixels - 29), Vector2(drawing_size.x / 2.0 + 23, bottom_pixels)]), Color("#c6d6e1"))
+func _escape_bbcode(plain_text: String) -> String:
+	return plain_text.replace("[", "[lb]")

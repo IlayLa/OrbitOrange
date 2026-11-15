@@ -114,6 +114,7 @@ func _ready() -> void:
 	_launch_slider.value_changed.connect(_on_launch_angle_changed)
 	add_child(_launch_slider)
 	_launch_value = _label(Vector2(423, 376), Vector2(80, 20), 10)
+	GameState.launch_requested.connect(_refresh)
 	GameState.derived_changed.connect(_refresh)
 	GameState.mission_changed.connect(_refresh)
 	_refresh()
@@ -133,11 +134,12 @@ func _label(position_pixels: Vector2, size_pixels: Vector2, font_size_pixels: in
 func _process(_elapsed_seconds: float) -> void:
 	if _pending_plan_change:
 		_pending_plan_change = false
-		GameState.notify_plan_changed()
+		if not GameState.has_launched:
+			GameState.notify_plan_changed()
 
 
 func _input(event: InputEvent) -> void:
-	if not is_visible_in_tree():
+	if not _can_edit():
 		_drag_mode = ""
 		_drag_snapshot = null
 		return
@@ -157,6 +159,8 @@ func _input(event: InputEvent) -> void:
 
 
 func _on_view_input(event: InputEvent) -> void:
+	if not _can_edit():
+		return
 	if event is InputEventMouseMotion:
 		_overlay.tooltip_text = _tooltip_at(event.position)
 		var hovered: Dictionary = _orbit_view.pick_path(event.position, 14.0)
@@ -185,6 +189,8 @@ func _on_view_input(event: InputEvent) -> void:
 
 
 func _add_pulse(position_pixels: Vector2) -> void:
+	if not _can_edit():
+		return
 	if GameState.summary == null or GameState.summary.ascent == null or not GameState.summary.ascent.did_reach_initial_orbit:
 		_hint.text = "Reach the initial orbit first"
 		return
@@ -205,6 +211,8 @@ func _add_pulse(position_pixels: Vector2) -> void:
 
 
 func _update_drag(position_pixels: Vector2) -> void:
+	if not _can_edit():
+		return
 	var pulse: Pulse = _selected_pulse()
 	if pulse == null:
 		return
@@ -225,12 +233,16 @@ func _update_drag(position_pixels: Vector2) -> void:
 
 
 func _on_launch_angle_changed(angle_degrees: float) -> void:
+	if not _can_edit():
+		return
 	GameState.plan.launch_angle_radians = deg_to_rad(angle_degrees)
 	_launch_value.text = "%.1f°" % angle_degrees
 	_pending_plan_change = true
 
 
 func _on_magnitude_changed(magnitude_meters_per_second: float) -> void:
+	if not _can_edit():
+		return
 	var pulse: Pulse = _selected_pulse()
 	if pulse == null or not is_finite(magnitude_meters_per_second):
 		return
@@ -246,6 +258,8 @@ func _on_magnitude_changed(magnitude_meters_per_second: float) -> void:
 
 
 func _delete_selected() -> void:
+	if not _can_edit():
+		return
 	for pulse_index in GameState.plan.pulses.size():
 		if GameState.plan.pulses[pulse_index].pulse_id == _selected_pulse_id:
 			GameState.plan.pulses.remove_at(pulse_index)
@@ -285,10 +299,15 @@ func _refresh() -> void:
 	var can_set_magnitude: bool = pulse != null and allocation != null and not allocation.starts_with_solid
 	_magnitude_number.visible = can_set_magnitude
 	_magnitude_slider.visible = can_set_magnitude
-	_delete_button.disabled = pulse == null
+	_delete_button.disabled = GameState.has_launched or pulse == null
 	_hint.text = "Click the orbit" if _is_placing_pulse else ("Click path to add" if pulse == null else "Pulse %d · Δv" % pulse.pulse_id)
 	_inspector_label.text = "Select a pulse to edit" if pulse == null else ("Solid motor · full burn" if allocation != null and allocation.starts_with_solid else "Requested change in velocity")
-	_add_button.disabled = GameState.summary == null or GameState.summary.ascent == null or not GameState.summary.ascent.did_reach_initial_orbit
+	_add_button.disabled = GameState.has_launched or GameState.summary == null or GameState.summary.ascent == null or not GameState.summary.ascent.did_reach_initial_orbit
+	_launch_slider.editable = not GameState.has_launched
+	_magnitude_slider.editable = not GameState.has_launched
+	_magnitude_number.editable = not GameState.has_launched
+	if GameState.has_launched:
+		_hint.text = "Plan locked in flight"
 	if can_set_magnitude:
 		var requested_delta_v_meters_per_second: float = pulse.requested_delta_v_meters_per_second()
 		_magnitude_slider.set_block_signals(true)
@@ -488,6 +507,8 @@ func _describe_allocation(caption: String, allocation: BurnAllocation) -> String
 
 
 func _on_add_toggled(is_pressed: bool) -> void:
+	if not _can_edit():
+		return
 	_is_placing_pulse = is_pressed
 	_hint.text = "Click the orbit" if is_pressed else "Click path to add"
 
@@ -495,3 +516,7 @@ func _on_add_toggled(is_pressed: bool) -> void:
 func _clear_hover() -> void:
 	_has_hover_point = false
 	_overlay.queue_redraw()
+
+
+func _can_edit() -> bool:
+	return not GameState.has_launched and is_visible_in_tree() and get_global_rect().intersects(get_viewport_rect())

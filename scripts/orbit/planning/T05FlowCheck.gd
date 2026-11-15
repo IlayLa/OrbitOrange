@@ -2,6 +2,7 @@ extends Node
 ## Runs the normal Console entry and pulse placement through real GUI mouse input.
 
 var _failed := false
+var _planning_console: Control
 
 
 func _ready() -> void:
@@ -10,6 +11,11 @@ func _ready() -> void:
 	GameState.select_mission(mission["id"], mission["science_missions"][0]["id"], [])
 	var console: Control = load("res://scenes/Console.tscn").instantiate()
 	add_child(console)
+	_planning_console = _find_planning_console(console)
+	if not _check(_planning_console != null, "full game uses the integrated planning console"):
+		return
+	if not OS.get_cmdline_user_args().has("--animated-zoom"):
+		_planning_console.set("zoom_duration_seconds", 0.0)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var overview_artwork: TextureRect = console.find_child("AmitPlanningBackground", true, false)
@@ -25,6 +31,7 @@ func _ready() -> void:
 		return
 	var monitor_center_pixels: Vector2 = ScreenLayout.OVERVIEW_ORBIT_MONITOR_SCREEN.get_center()
 	_click(monitor_center_pixels)
+	await _wait_for_zoom()
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var editor: Control = _find_editor(console)
@@ -51,6 +58,7 @@ func _ready() -> void:
 	if not _check(back != null, "pulse editor exposes a back action"):
 		return
 	_click(back.get_global_transform_with_canvas() * (back.size / 2.0))
+	await _wait_for_zoom()
 	await get_tree().process_frame
 	if not _check(not editor.is_visible_in_tree(), "back returns to the planning overview"):
 		return
@@ -63,6 +71,7 @@ func _ready() -> void:
 	if not _check(plan_button != null, "overview provides a visible Plan flight button"):
 		return
 	_click(plan_button.get_global_transform_with_canvas() * (plan_button.size / 2.0))
+	await _wait_for_zoom()
 	await get_tree().process_frame
 	if not _check(editor.is_visible_in_tree() and GameState.plan.pulses.size() == 1, "Plan flight reopens the editor and preserves the existing pulse"):
 		return
@@ -123,3 +132,21 @@ func _check(condition: bool, description: String) -> bool:
 		push_error("T05 full-game regression: " + description)
 		get_tree().quit(1)
 	return condition
+
+
+func _find_planning_console(node: Node) -> Control:
+	if node is Control and node.get_script() != null and node.get_script().resource_path == "res://scripts/design/PlanningConsole.gd":
+		return node
+	for child in node.get_children():
+		var found: Control = _find_planning_console(child)
+		if found != null:
+			return found
+	return null
+
+
+func _wait_for_zoom() -> void:
+	for frame_index in 240:
+		if not _planning_console.get("_is_zoom_running"):
+			return
+		await get_tree().process_frame
+	_check(false, "the normal planning zoom finishes")
