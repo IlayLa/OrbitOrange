@@ -24,6 +24,8 @@ const EDGE_MARGIN_PIXELS := 3.0
 const DASH_ON_PIXELS := 3.0
 const DASH_OFF_PIXELS := 3.0
 const TICK_LABEL_SPACING_PIXELS := 9.0
+## Free space kept right of the "ALT" tag, so a tick label never reads as part of it.
+const TAG_CLEARANCE_PIXELS := 4.0
 const ORBIT_SAMPLE_COUNT := 120
 ## A hazard belt whose outer edge is within this many times the mission's
 ## highest altitude is fitted into the diagram.
@@ -33,6 +35,9 @@ const COLOR_TARGET_HALO := Color(0.36, 0.76, 0.24, 0.3)
 const COLOR_RING := Color(0.745, 0.827, 0.98, 0.35)
 const COLOR_HAZARD := Color("e23a1a")
 const COLOR_BODY_OUTLINE := Color("bed3fa")
+## The body: a muted ocean blue between the monitor blue and the panel blue
+## of the mock-ups, so it does not glare beside the pixel art.
+const COLOR_BODY := Color("35609c")
 ## The achieved orbit: white, so it never sits orange-on-red over a hazard
 ## belt and reads for colour-blind players.
 const COLOR_ACHIEVED_ORBIT := Color("ffffff")
@@ -176,14 +181,14 @@ func _draw() -> void:
 	else:
 		draw_arc(_center, target_radius_pixels, 0.0, TAU, 128, PixelGlyphs.COLOR_GOOD_GREEN, 1.0)
 
-	draw_circle(_center, body_radius_pixels, ScreenLayout.COLOR_EARTH_OCEAN)
+	draw_circle(_center, body_radius_pixels, COLOR_BODY)
 	draw_arc(_center, body_radius_pixels, 0.0, TAU, 64, COLOR_BODY_OUTLINE, 1.0)
 
 	if mode == Mode.RESULT and _achieved_elements != null:
 		_draw_achieved_orbit()
 
-	_draw_tick_labels(ring_altitudes)
-	PixelGlyphs.draw_text(self, Vector2(3, 1), stretch_tag_text(), PixelGlyphs.COLOR_MUTED_TEXT)
+	var tag_rect: Rect2 = _draw_plated_text(Vector2(3, 1), stretch_tag_text(), PixelGlyphs.COLOR_MUTED_TEXT)
+	_draw_tick_labels(ring_altitudes, tag_rect)
 	_draw_eccentricity_tag(target)
 
 
@@ -243,23 +248,39 @@ func _draw_achieved_orbit() -> void:
 	draw_polyline(points, COLOR_ACHIEVED_ORBIT, 2.0)
 
 
-## Real kilometre values at the rings, stacked upward from the body's top,
-## written left to right. A label too close to the previous one is skipped.
-func _draw_tick_labels(ring_altitudes: Array) -> void:
-	var previous_label_top: float = INF
+## Real kilometre values at the rings, stacked upward from the body's top on
+## dark plates. A label too close to the one below it on the right goes to
+## the left of the tick; one with no room on either side, or under the
+## "ALT" tag (tag_rect), is skipped.
+func _draw_tick_labels(ring_altitudes: Array, tag_rect: Rect2) -> void:
+	# The top of the last label on the right and on the left of the ticks.
+	var previous_label_tops: Array[float] = [INF, INF]
 	var sorted_altitudes: Array = ring_altitudes.duplicate()
 	sorted_altitudes.sort()
 	for ring_altitude_kilometers in sorted_altitudes:
 		var tick_y: float = roundf(_center.y - drawn_radius_pixels(float(ring_altitude_kilometers)))
-		draw_line(Vector2(_center.x - 2, tick_y), Vector2(_center.x + 2, tick_y), COLOR_BODY_OUTLINE, 1.0)
-		var label_top: float = tick_y - 4.0
-		if previous_label_top - label_top < TICK_LABEL_SPACING_PIXELS or label_top < 10.0:
+		if tick_y < 0.0:
 			continue
+		draw_line(Vector2(_center.x - 2, tick_y), Vector2(_center.x + 2, tick_y), COLOR_BODY_OUTLINE, 1.0)
+		var label_top: float = maxf(0.0, tick_y - 4.0)
 		var label_text := NumberFormat.kilometers(float(ring_altitude_kilometers))
 		var label_width: float = PixelGlyphs.text_width(label_text)
-		draw_rect(Rect2(Vector2(_center.x + 4, label_top), Vector2(label_width + 2, 9)), Color(0, 0, 0, 0.75))
-		PixelGlyphs.draw_text(self, Vector2(_center.x + 5, label_top), label_text, COLOR_BODY_OUTLINE)
-		previous_label_top = label_top
+		for side_index in 2:
+			var label_left: float = _center.x + 5.0 if side_index == 0 else _center.x - 5.0 - label_width
+			var plate_rect := Rect2(Vector2(label_left - 1.0, label_top), Vector2(label_width + 2.0, PixelGlyphs.LINE_HEIGHT_PIXELS))
+			if previous_label_tops[side_index] - label_top < TICK_LABEL_SPACING_PIXELS or plate_rect.intersects(tag_rect.grow_individual(0, 0, TAG_CLEARANCE_PIXELS, 0)):
+				continue
+			_draw_plated_text(Vector2(label_left, label_top), label_text, COLOR_BODY_OUTLINE)
+			previous_label_tops[side_index] = label_top
+			break
+
+
+## Text on a dark plate one pixel wider than the text; returns the plate.
+func _draw_plated_text(top_left: Vector2, text: String, text_color: Color) -> Rect2:
+	var plate_rect := Rect2(top_left - Vector2(1, 0), Vector2(PixelGlyphs.text_width(text) + 2.0, PixelGlyphs.LINE_HEIGHT_PIXELS))
+	draw_rect(plate_rect, COLOR_LABEL_PLATE)
+	PixelGlyphs.draw_text(self, top_left, text, text_color)
+	return plate_rect
 
 
 func _draw_eccentricity_tag(target: Dictionary) -> void:
@@ -271,4 +292,4 @@ func _draw_eccentricity_tag(target: Dictionary) -> void:
 		eccentricity = _achieved_elements.eccentricity
 		tag_color = COLOR_ACHIEVED_ORBIT
 	var tag_text := "e≈0" if eccentricity <= CIRCULAR_ECCENTRICITY else "e=%.2f" % eccentricity
-	PixelGlyphs.draw_text(self, Vector2(3, size.y - 10), tag_text, tag_color)
+	_draw_plated_text(Vector2(3, size.y - 10), tag_text, tag_color)

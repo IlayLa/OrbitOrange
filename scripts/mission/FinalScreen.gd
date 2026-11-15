@@ -32,8 +32,13 @@ const SPEECH_BUBBLE_TEXTS := {
 	"Scientific Breakthrough": "I Like It - Breakthrough",
 }
 const FIREWORK_BANDS := ["Scientific Breakthrough"]
-## Burst centres around the portrait, in screen pixels, and their start offsets in the cycle.
-const FIREWORK_CENTERS := [Vector2(10, 14), Vector2(80, 10), Vector2(8, 58), Vector2(46, 5), Vector2(84, 40)]
+## The fireworks stay in this rectangle around the portrait: left of the
+## header (which starts at x 92) and inside the screen.
+const FIREWORK_RECT := Rect2(0, 0, 88, 84)
+## Burst centres around the portrait, in screen pixels. Each is at least
+## FIREWORK_LARGEST_RADIUS_PIXELS + 2 inside FIREWORK_RECT, so no burst is cut.
+const FIREWORK_CENTERS := [Vector2(15, 16), Vector2(72, 15), Vector2(14, 62), Vector2(44, 15), Vector2(73, 58)]
+const FIREWORK_LARGEST_RADIUS_PIXELS := 12.0
 const FIREWORK_COLORS := [Color("ff5000"), Color("ffd27a"), Color("6ee06e"), Color("ffffff"), Color("7ac8ff")]
 const FIREWORK_FRAME_SECONDS := 0.08
 const FIREWORK_FRAMES_PER_BURST := 14
@@ -51,6 +56,13 @@ const COLOR_EARNED := Color("ff5000")
 const COLOR_LOST := Color("2a3240")
 const COLOR_LOST_DITHER := Color("4a5568")
 const COLOR_HEADER := Color("ffd27a")
+## Dark plate under the header text, which does not read on the tan bezel.
+const COLOR_HEADER_PLATE := Color("10141c")
+const HEADER_PLATE_MARGIN_PIXELS := 3.0
+## The speech bubble's tail: its base on the bubble's lower edge, and its tip
+## down and to the left of the base, towards Amit, below the band name.
+const BUBBLE_TAIL_BASE_WIDTH_PIXELS := 8.0
+const BUBBLE_TAIL_TIP_OFFSET := Vector2(-9, 12)
 const DETAIL_HINT := "Click a bar or an event pip to read why."
 
 ## The groups of GameState.score, from MissionPresentation.score_groups.
@@ -256,8 +268,9 @@ static func portrait_texture(band_name: String, coin: int = randi() % 2) -> Atla
 func _add_fireworks() -> void:
 	var fireworks := Control.new()
 	fireworks.name = "Fireworks"
-	fireworks.position = Vector2.ZERO
-	fireworks.size = Vector2(92, 82)
+	fireworks.position = FIREWORK_RECT.position
+	fireworks.size = FIREWORK_RECT.size
+	fireworks.clip_contents = true
 	fireworks.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	fireworks.set_meta("frame", 0)
 	fireworks.draw.connect(_draw_fireworks.bind(fireworks))
@@ -282,7 +295,7 @@ func _draw_fireworks(fireworks: Control) -> void:
 		var color: Color = FIREWORK_COLORS[(index + frame / (FIREWORK_FRAMES_PER_BURST + 4)) % FIREWORK_COLORS.size()]
 		color.a = 1.0 - progress * progress
 		var center: Vector2 = FIREWORK_CENTERS[index]
-		var radius := 2.0 + progress * 11.0
+		var radius := 2.0 + progress * (FIREWORK_LARGEST_RADIUS_PIXELS - 2.0)
 		for ray in 8:
 			var direction := Vector2.RIGHT.rotated(ray * TAU / 8.0)
 			for trail in 2:
@@ -317,22 +330,49 @@ func _add_speech_bubble(text: String) -> void:
 	label.add_theme_font_size_override("font_size", 12)
 	label.add_theme_color_override("font_color", ScreenLayout.COLOR_SPACE_BLACK)
 	bubble.add_child(label)
+	var tail := Control.new()
+	tail.name = "SpeechBubbleTail"
+	tail.size = ScreenLayout.SCREEN_SIZE
+	tail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tail.draw.connect(_draw_bubble_tail.bind(tail, bubble))
+	bubble.resized.connect(tail.queue_redraw)
+	add_child(tail)
+
+
+## The bubble's tail: a white wedge from the bubble's lower-left corner
+## towards Amit, outlined like the bubble. Drawn over the bubble's border so
+## the wedge opens into the bubble.
+func _draw_bubble_tail(tail: Control, bubble: Control) -> void:
+	var base_left := Vector2(bubble.position.x + 6.0, bubble.position.y + bubble.size.y - 2.0)
+	var base_right := base_left + Vector2(BUBBLE_TAIL_BASE_WIDTH_PIXELS, 0.0)
+	var tip: Vector2 = (base_left + BUBBLE_TAIL_TIP_OFFSET).round()
+	tail.draw_colored_polygon(PackedVector2Array([base_left, base_right, tip]), ScreenLayout.COLOR_TEXT_LIGHT)
+	tail.draw_line(base_left, tip, COLOR_EARNED, 2.0)
+	tail.draw_line(base_right, tip, COLOR_EARNED, 2.0)
 
 
 func _draw_header() -> void:
 	if _score == null:
+		_draw_header_plate(Rect2(0, 4, PixelGlyphs.text_width("MISSION REPORT", 16), 16))
 		PixelGlyphs.draw_text(_header, Vector2(0, 4), "MISSION REPORT", COLOR_HEADER, 16)
+		_draw_header_plate(Rect2(0, 28, PixelGlyphs.text_width("No flight has been scored yet.", 10), 12))
 		PixelGlyphs.draw_text(_header, Vector2(0, 28), "No flight has been scored yet.", ScreenLayout.COLOR_TEXT_LIGHT, 10)
 		return
-	PixelGlyphs.draw_text(_header, Vector2(0, 2), _score.band_name.to_upper(), COLOR_HEADER, 16)
+	var band_text: String = _score.band_name.to_upper()
+	_draw_header_plate(Rect2(0, 2, PixelGlyphs.text_width(band_text, 16), 16))
+	PixelGlyphs.draw_text(_header, Vector2(0, 2), band_text, COLOR_HEADER, 16)
 	var total_text: String = "0" if _score.is_launch_failure else NumberFormat.points_total(_score.total_points)
-	var total_width: float = PixelGlyphs.draw_text(_header, Vector2(0, 22), total_text, ScreenLayout.COLOR_TEXT_LIGHT, 24)
+	var total_width: float = PixelGlyphs.text_width(total_text, 24)
+	_draw_header_plate(Rect2(0, 24, total_width + 4 + PixelGlyphs.text_width("pts", 10), 22))
+	PixelGlyphs.draw_text(_header, Vector2(0, 22), total_text, ScreenLayout.COLOR_TEXT_LIGHT, 24)
 	PixelGlyphs.draw_text(_header, Vector2(total_width + 4, 34), "pts", PixelGlyphs.COLOR_MUTED_TEXT, 10)
 
 	var chip_left := 0.0
 	var chip_top := 60.0
 	var reason_severity: int = WarningLamps.Severity.OK
 	var reason_text := "no flight data"
+	# Without flight data there is nothing to judge: a grey dot, not a green one.
+	var reason_color: Color = PixelGlyphs.COLOR_MUTED_TEXT
 	if _score.is_launch_failure:
 		reason_severity = WarningLamps.Severity.BLOCKING
 		reason_text = "launch failed"
@@ -345,13 +385,24 @@ func _draw_header() -> void:
 				reason_severity = WarningLamps.Severity.WARNING
 			_:
 				reason_severity = WarningLamps.Severity.BLOCKING
-	chip_left += PixelGlyphs.draw_chip(_header, Vector2(chip_left, chip_top), PixelGlyphs.lamp_glyph_name(reason_severity),
-			reason_text, PixelGlyphs.lamp_color(reason_severity)) + 10.0
+	if _score.is_launch_failure or _result != null:
+		reason_color = PixelGlyphs.lamp_color(reason_severity)
+	var chips: Array[Array] = [[PixelGlyphs.lamp_glyph_name(reason_severity), reason_text, reason_color]]
 	if _result != null:
-		chip_left += PixelGlyphs.draw_chip(_header, Vector2(chip_left, chip_top), "clock",
-				NumberFormat.duration(_result.flight_duration_seconds), ScreenLayout.COLOR_MONITOR_GRID_LINE) + 10.0
-		PixelGlyphs.draw_chip(_header, Vector2(chip_left, chip_top), "fuel",
-				"%s reserve" % NumberFormat.meters_per_second(_result.reserve_delta_v_meters_per_second), ScreenLayout.COLOR_MONITOR_GRID_LINE)
+		chips.append(["clock", NumberFormat.duration(_result.flight_duration_seconds), ScreenLayout.COLOR_MONITOR_GRID_LINE])
+		chips.append(["fuel", "%s reserve" % NumberFormat.meters_per_second(_result.reserve_delta_v_meters_per_second),
+				ScreenLayout.COLOR_MONITOR_GRID_LINE])
+	var chips_width := 0.0
+	for chip in chips:
+		chips_width += PixelGlyphs.chip_width(chip[0], chip[1]) + 10.0
+	_draw_header_plate(Rect2(0, chip_top, chips_width - 10.0, PixelGlyphs.LINE_HEIGHT_PIXELS))
+	for chip in chips:
+		chip_left += PixelGlyphs.draw_chip(_header, Vector2(chip_left, chip_top), chip[0], chip[1], chip[2]) + 10.0
+
+
+## A dark plate under one row of header text (text_rect in header pixels).
+func _draw_header_plate(text_rect: Rect2) -> void:
+	_header.draw_rect(text_rect.grow(HEADER_PLATE_MARGIN_PIXELS), COLOR_HEADER_PLATE)
 
 
 func _draw_bars() -> void:

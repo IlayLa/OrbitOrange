@@ -177,6 +177,14 @@ func _check_mission_select(report: TestReport) -> void:
 			report.check(not card.tooltip_text.is_empty(), "a quest card shows its full text on hover")
 	screen._on_quest_toggled(true, "keep_reserve_placeholder")
 	report.check(screen._budget_label.text.contains("$35M"), "the footer adds the grant live (%s)" % screen._budget_label.text)
+	var widest_budget: String = screen.budget_text({"id": "rich"}, 100.0, 15.0)
+	var budget_font: Font = screen._budget_label.get_theme_font("font")
+	report.check(budget_font.get_string_size(widest_budget, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x <= screen.BUDGET_SCREEN.size.x,
+			"a $100M budget with grants fits the budget line (%s)" % widest_budget)
+	var long_card := ChoiceCard.new()
+	long_card.setup("A quest title that is far too long for one line", "", [], ScreenLayout.MISSION_SELECT_QUEST_CARD_BOX.size.x)
+	report.check(long_card._title_lines.size() == 2, "a long card title wraps to two lines")
+	long_card.free()
 	for panel_screen: Rect2 in ScreenLayout.MISSION_SELECT_PANEL_SCREENS:
 		report.check(Rect2(Vector2.ZERO, ScreenLayout.SCREEN_SIZE).encloses(panel_screen), "the three columns fit the 640 pixel canvas")
 	var background: TextureRect = screen.get_node_or_null("MissionChoiceBackground")
