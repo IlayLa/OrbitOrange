@@ -162,7 +162,7 @@ func _check_burns(report: TestReport) -> void:
 	var launch_stage := design.add_stage(TEST_ENGINE_ID)
 	var second_stage := design.add_stage(TEST_ENGINE_ID)
 	design.add_stage(TEST_ENGINE_ID)
-	var plan := MissionPlan.new()
+	var plan := MissionPlan.legacy_plan()
 	plan.launch_stage_ids.append_array([launch_stage.stage_id, second_stage.stage_id])
 	var ascent := Flight.new()
 	ascent.start_flight(design, plan, _mission(120.0), 123)
@@ -307,7 +307,7 @@ func _start_flight_with_design(design: RocketDesign, duration_seconds: float) ->
 	GameState.mission = mission
 	GameState.science_mission_id = "flight_test_science"
 	var flight := Flight.new()
-	flight.start_flight(design, MissionPlan.new(), mission, 123)
+	flight.start_flight(design, MissionPlan.legacy_plan(), mission, 123)
 
 	# A circular fixture works with the skeleton and the integrated orbit model.
 	var body: Dictionary = GameData.body("earth")

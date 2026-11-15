@@ -35,6 +35,7 @@ static func fill_reference_flight(design: RocketDesign, plan: MissionPlan, missi
 ## million USD) and makes its first stage the only launch stage of the plan. The
 ## launch angle and the pulses of the plan are left alone.
 static func fill_reference_rocket(design: RocketDesign, plan: MissionPlan) -> void:
+	plan.planning_mode = MissionPlan.PlanningMode.LEGACY_MANUAL
 	design.stages.clear()
 	design.payload_part_ids.clear()
 	var first_stage: Stage = design.add_stage(FIRST_STAGE_ENGINE_PART_ID, FIRST_STAGE_TANK_PART_ID)
@@ -116,3 +117,12 @@ static func _burnout_speed_meters_per_second(design: RocketDesign, plan: Mission
 static func _launch_site_angle_radians(mission: Dictionary) -> float:
 	var launch_site: Dictionary = mission.get("launch_site", {})
 	return deg_to_rad(launch_site.get("polar_angle_degrees", 90.0))
+
+
+## Builds the reference design with automatic ascent and no manual pulses.
+static func fill_automatic_flight(design: RocketDesign, plan: MissionPlan) -> void:
+	fill_reference_rocket(design, plan)
+	plan.planning_mode = MissionPlan.PlanningMode.AUTOMATIC
+	plan.launch_angle_radians = deg_to_rad(30.0)
+	plan.launch_stage_ids.clear()
+	plan.pulses.clear()

@@ -65,7 +65,7 @@ func _check_plan_resolves(report: TestReport) -> void:
 	var first_stage: Stage = design.add_stage("engine_liquid_basic", "tank_aluminium_basic")
 	design.payload_part_ids.append("science_camera_basic")
 
-	var plan := MissionPlan.new()
+	var plan := MissionPlan.legacy_plan()
 	plan.launch_stage_ids.append(first_stage.stage_id)
 	# Above the horizontal: a horizontal launch below circular speed starts at
 	# its apoapsis on the ground and impacts at once (changed by T01).
