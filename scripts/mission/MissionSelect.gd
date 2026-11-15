@@ -364,11 +364,19 @@ func _draw_schematic_legend() -> void:
 	if not science.is_empty():
 		PixelGlyphs.draw_chip(_schematic_legend, Vector2(0, row_top), "band", "science %s" % _band_text(science.get("zone", {})), COLOR_BAND_GLYPH)
 		row_top += 10.0
+	# Room for the zone text: the row less the hazard glyph and the badge.
+	var text_room: float = (_schematic_legend.size.x - PixelGlyphs.chip_width("hazard", "")
+			- 4.0 - PixelGlyphs.placeholder_badge_width())
 	for zone: Dictionary in _chosen_mission.get("hazard_zones", []):
-		var zone_text := "%s %s" % [str(zone.get("name", "hazard")).to_lower(), _band_text(zone)]
+		var zone_name := str(zone.get("name", "hazard")).to_lower()
+		var zone_text := "%s %s" % [zone_name, _band_text(zone)]
 		if _schematic.is_beyond_diagram(zone):
-			zone_text = "%s >%s, off chart" % [str(zone.get("name", "hazard")).to_lower(),
-					NumberFormat.kilometers(float(zone.get("inner_altitude_kilometers", 0.0)))]
+			var inner_text := NumberFormat.kilometers(float(zone.get("inner_altitude_kilometers", 0.0)))
+			zone_text = "%s >%s, off chart" % [zone_name, inner_text]
+			# ">" already says the zone is above the chart; drop the words when they do not fit.
+			if PixelGlyphs.text_width(zone_text) > text_room:
+				zone_text = "%s >%s" % [zone_name, inner_text]
+		zone_text = PixelGlyphs.fit_to_width(zone_text, text_room)
 		var used_width: float = PixelGlyphs.draw_chip(_schematic_legend, Vector2(0, row_top), "hazard",
 				zone_text, ScreenLayout.COLOR_WARNING_RED)
 		PixelGlyphs.draw_placeholder_badge(_schematic_legend, Vector2(used_width + 4.0, row_top))

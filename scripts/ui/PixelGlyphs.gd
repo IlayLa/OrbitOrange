@@ -210,10 +210,15 @@ static func is_placeholder_text(text: String) -> bool:
 ## Draws the grey 8 pixel PLACEHOLDER badge and returns its width.
 static func draw_placeholder_badge(canvas: CanvasItem, top_left: Vector2) -> float:
 	var badge_text := "PLACEHOLDER"
-	var badge_width: float = text_width(badge_text) + 4.0
+	var badge_width: float = placeholder_badge_width()
 	canvas.draw_rect(Rect2(top_left.round(), Vector2(badge_width, 9)), COLOR_DISABLED)
 	draw_text(canvas, top_left + Vector2(2, 0), badge_text, COLOR_OUTLINE)
 	return badge_width
+
+
+## The width draw_placeholder_badge takes.
+static func placeholder_badge_width() -> float:
+	return text_width("PLACEHOLDER") + 4.0
 
 
 static func _cells_of(glyph_name: String) -> Array:
