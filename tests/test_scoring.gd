@@ -262,6 +262,16 @@ func _check_final_screen_portraits(report: TestReport) -> void:
 		GameState.add_child(screen)
 		var portrait := FINAL_SCREEN_SCRIPT.portrait_texture(band_name)
 		report.check(portrait.atlas != null and portrait.atlas.resource_path.begins_with("res://assets/art/portraits/amit_"), "%s portrait is Amit's art" % band_name)
+		var background: TextureRect = screen.find_child("EndScreenBackground", true, false)
+		var expected_background: String = "res://assets/art/screens/end/final_%s.png" % band_name.to_lower().replace(" ", "_")
+		report.check(background != null and background.texture != null and background.texture.resource_path == expected_background,
+				"%s final screen loads its own background %s" % [band_name, expected_background])
+		var bubble: Control = screen.find_child("SpeechBubble", true, false)
+		if bubble != null:
+			report.check(FINAL_SCREEN_SCRIPT.AMIT_BOX_INSIDE.encloses(Rect2(bubble.position, bubble.size)), "%s speech bubble is inside the AMIT box" % band_name)
+		var portrait_rect: TextureRect = screen.find_child("Portrait", true, false)
+		report.check(portrait_rect != null and FINAL_SCREEN_SCRIPT.AMIT_BOX_INSIDE.encloses(Rect2(portrait_rect.position, portrait_rect.size)),
+				"%s portrait is inside the AMIT box" % band_name)
 		var bubble_label: Label = screen.find_child("SpeechBubbleLabel", true, false)
 		if band_name == "Great Success":
 			report.check(bubble_label != null and bubble_label.text == "Great Success!!", "Great Success final screen says Great Success!!")
@@ -278,4 +288,5 @@ func _check_final_screen_portraits(report: TestReport) -> void:
 			report.check(fireworks == null, "%s final screen has no fireworks" % band_name)
 		GameState.remove_child(screen)
 		screen.free()
+	report.check(FINAL_SCREEN_SCRIPT.background_path("Unknown band") == "res://assets/art/screens/end/final_failure.png", "an unknown band falls back to the Failure background")
 	GameState.score = saved_score

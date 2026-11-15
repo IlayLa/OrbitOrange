@@ -1,16 +1,63 @@
 extends Control
 ## Displays the scored result and flight log; also works without an active run.
 ##
-## Laid out without text walls (design/minimize_text_walls_options.md,
-## Options 2 and 3):
-##   header     portrait, band name, the whole-number total, end reason, time
-##   bars       one earned/lost bar per scoring group with a 2-3 word tag;
-##              clicking a bar writes its full sentences in the detail box
+## Drawn on the band's 128 x 80 end-screen mock-up (design/end screens/),
+## scaled x5, which already shows the band title, SCORE, the four row labels
+## with an empty box each, and a framed AMIT box. Over it, in mock-up pixels x5:
+##   AMIT box   Amit's portrait, and the band's speech bubble above him
+##   SCORE      the whole-number total beside the SCORE title; one earned/lost
+##              bar inside each row box (Orbit = the Mission group), its points
+##              to the right; clicking a row writes its sentences in the
+##              detail strip
+##   top strip  end reason, flight time and reserve, above the title
+##   bottom     the detail strip (bottom left), the Flight log and Back to
+##              main menu buttons (under the AMIT box)
+## The mock-up has no room for the orbit and the events, so they sit on the
+## flight log page, which the Flight log button lays over the score page
+## (left of the AMIT box); the detail strip and the buttons stay in view:
 ##   orbit      the achieved orbit (solid white) over the target (dashed
 ##              green), with the miss labelled ("+42km")
 ##   timeline   one pip per flight event; hovering a pip names it, clicking
-##              writes its explanation in the detail box
+##              writes its explanation in the detail strip
 ## The explanations of Scoring stay available, one click away.
+
+## The end-screen mock-ups, one per band: END_SCREEN_FOLDER + "final_" + the
+## band name in snake case + ".png" (see background_path).
+const END_SCREEN_FOLDER := "res://assets/art/screens/end/"
+## Inside of the mock-up's AMIT frame (frame at mock-up 92..122 x 15..56).
+const AMIT_BOX_INSIDE := Rect2(465, 80, 145, 200)
+## Inside of the four SCORE row boxes (Orbit, Budget, Science, Quests); the
+## frames are at mock-up 54..83 x 43..47, 50..54, 57..61 and 64..68.
+const SCORE_ROW_BOXES: Array[Rect2] = [
+	Rect2(275, 220, 140, 15),
+	Rect2(275, 255, 140, 15),
+	Rect2(275, 290, 140, 15),
+	Rect2(275, 325, 140, 15),
+]
+## The mock-up's row labels where they differ from the group titles.
+const ROW_TITLES := {"Mission": "ORBIT"}
+## The rows' labels in the mock-up start at mock-up x 21 (screen 105).
+const SCORE_ROW_LEFT_PIXELS := 102.0
+## Points ("37.7/50") right of each row box, before the AMIT frame at 460.
+const SCORE_POINTS_LEFT_PIXELS := 422.0
+const SCORE_RIGHT_EDGE_PIXELS := 458.0
+## A penalty's red mark, between the longest label (SCIENCE, to x 255) and
+## the row boxes' frames (from x 270).
+const PENALTY_MARK_LEFT_PIXELS := 261.0
+## The total ("66 pts"), right of the mock-up's SCORE title (ends at x 245).
+const TOTAL_POSITION := Vector2(262, 174)
+## End reason, time and reserve: the empty strip above every band's title.
+const CHIPS_POSITION := Vector2(105, 22)
+## Amit's 70 x 70 crop drawn at x2 inside the AMIT box.
+const PORTRAIT_SCALE := 2
+const BUBBLE_RECT := Rect2(469, 84, 137, 40)
+const DETAIL_RECT := Rect2(20, 350, 432, 46)
+const FLIGHT_LOG_BUTTON_RECT := Rect2(460, 296, 155, 40)
+const MENU_BUTTON_RECT := Rect2(460, 350, 155, 40)
+## The flight log page: left of the AMIT box and above the detail strip.
+const FLIGHT_LOG_RECT := Rect2(0, 0, 456, 346)
+const FLIGHT_LOG_BUTTON_TEXT := "Flight log"
+const SCORE_PAGE_BUTTON_TEXT := "Score"
 
 const PORTRAIT_FOLDER := "res://assets/art/portraits/"
 ## Amit's pose per band; a band with two poses picks one by a coin toss.
@@ -32,38 +79,33 @@ const SPEECH_BUBBLE_TEXTS := {
 	"Scientific Breakthrough": "I Like It - Breakthrough",
 }
 const FIREWORK_BANDS := ["Scientific Breakthrough"]
-## The fireworks stay in this rectangle around the portrait: left of the
-## header (which starts at x 92) and inside the screen.
-const FIREWORK_RECT := Rect2(0, 0, 88, 84)
-## Burst centres around the portrait, in screen pixels. Each is at least
+## The fireworks stay in the empty black above the AMIT frame (frame top at
+## y 75) and inside the screen.
+const FIREWORK_RECT := Rect2(450, 0, 190, 74)
+## Burst centres, in FIREWORK_RECT pixels. Each is at least
 ## FIREWORK_LARGEST_RADIUS_PIXELS + 2 inside FIREWORK_RECT, so no burst is cut.
-const FIREWORK_CENTERS := [Vector2(15, 16), Vector2(72, 15), Vector2(14, 62), Vector2(44, 15), Vector2(73, 58)]
+const FIREWORK_CENTERS := [Vector2(22, 18), Vector2(95, 16), Vector2(168, 20), Vector2(58, 52), Vector2(132, 54)]
 const FIREWORK_LARGEST_RADIUS_PIXELS := 12.0
 const FIREWORK_COLORS := [Color("ff5000"), Color("ffd27a"), Color("6ee06e"), Color("ffffff"), Color("7ac8ff")]
 const FIREWORK_FRAME_SECONDS := 0.08
 const FIREWORK_FRAMES_PER_BURST := 14
-const BARS_PANEL_RECT := Rect2(10, 84, 372, 176)
-const ORBIT_PANEL_RECT := Rect2(390, 84, 240, 176)
-const TIMELINE_PANEL_RECT := Rect2(10, 264, 620, 60)
-const DETAIL_RECT := Rect2(10, 328, 410, 68)
-const BAR_ROW_TOP_PIXELS := 20.0
-const BAR_ROW_HEIGHT_PIXELS := 38.0
-const BAR_LEFT_PIXELS := 8.0
-const BAR_WIDTH_PIXELS := 250.0
-const BAR_HEIGHT_PIXELS := 9.0
+const ORBIT_PANEL_RECT := Rect2(10, 8, 440, 254)
+const TIMELINE_PANEL_RECT := Rect2(10, 268, 440, 74)
+## The score rows sit in this control, which takes the clicks and the focus:
+## the mock-up's row labels, boxes and the points right of them.
+const BARS_RECT := Rect2(SCORE_ROW_LEFT_PIXELS, 213, 356, 135)
 const PIP_HIT_DISTANCE_PIXELS := 5.0
 const COLOR_EARNED := Color("ff5000")
 const COLOR_LOST := Color("2a3240")
 const COLOR_LOST_DITHER := Color("4a5568")
 const COLOR_HEADER := Color("ffd27a")
-## Dark plate under the header text, which does not read on the tan bezel.
-const COLOR_HEADER_PLATE := Color("10141c")
-const HEADER_PLATE_MARGIN_PIXELS := 3.0
 ## The speech bubble's tail: its base on the bubble's lower edge, and its tip
-## down and to the left of the base, towards Amit, below the band name.
+## below it, towards Amit's head.
+const BUBBLE_TAIL_BASE_LEFT_PIXELS := 62.0
 const BUBBLE_TAIL_BASE_WIDTH_PIXELS := 8.0
-const BUBBLE_TAIL_TIP_OFFSET := Vector2(-9, 12)
-const DETAIL_HINT := "Click a bar or an event pip to read why."
+const BUBBLE_TAIL_TIP_OFFSET := Vector2(-3, 11)
+const DETAIL_HINT := "Click a score row to read why."
+const FLIGHT_LOG_HINT := "Click an event pip to read what happened."
 
 ## The groups of GameState.score, from MissionPresentation.score_groups.
 var score_groups: Array[Dictionary] = []
@@ -72,6 +114,9 @@ var _result: FlightResult
 var _header: Control
 var _bars: Control
 var _timeline: Control
+## The flight log page (orbit and timeline) and the button that shows it.
+var _flight_log: Control
+var _flight_log_button: Button
 var _schematic: OrbitSchematic
 var _orbit_legend: Control
 var _detail_label: RichTextLabel
@@ -87,33 +132,55 @@ var _selected_event_index: int = -1
 func _ready() -> void:
 	layout_direction = Control.LAYOUT_DIRECTION_LTR
 	theme = MissionPresentation.create_theme()
-	MissionPresentation.add_background(self)
 	_score = GameState.score
 	_result = GameState.flight_result
 	score_groups = MissionPresentation.score_groups(_score)
-
-	var portrait := TextureRect.new()
-	portrait.position = Vector2(12, 8)
-	portrait.size = Vector2(70, 70)
-	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	# The mock-up calls the Mission group ORBIT.
+	for group in score_groups:
+		group["title"] = ROW_TITLES.get(group["part_name"], group["title"])
 	var band_name := _score.band_name if _score != null else "Failure"
+	ScreenLayout.add_mockup_background(self, background_path(band_name), "EndScreenBackground")
+
+	# Amit in the AMIT box. The box is filled first: the mock-up writes
+	# "AM IT" there as a placeholder for him.
+	var amit_box := ColorRect.new()
+	amit_box.name = "AmitBox"
+	amit_box.color = ScreenLayout.COLOR_SPACE_BLACK
+	amit_box.position = AMIT_BOX_INSIDE.position
+	amit_box.size = AMIT_BOX_INSIDE.size
+	amit_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(amit_box)
 	if band_name in FIREWORK_BANDS:
 		_add_fireworks()
+	var bubble_text: String = SPEECH_BUBBLE_TEXTS.get(band_name, "")
+	var portrait := TextureRect.new()
+	portrait.name = "Portrait"
+	portrait.size = PORTRAIT_CROP.size * PORTRAIT_SCALE
+	# At the foot of the box under a speech bubble, else in its middle.
+	var portrait_top: float = AMIT_BOX_INSIDE.end.y - portrait.size.y - 2.0
+	if bubble_text == "":
+		portrait_top = AMIT_BOX_INSIDE.position.y + roundf((AMIT_BOX_INSIDE.size.y - portrait.size.y) * 0.5)
+	portrait.position = Vector2(AMIT_BOX_INSIDE.position.x + roundf((AMIT_BOX_INSIDE.size.x - portrait.size.x) * 0.5), portrait_top)
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_SCALE
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	portrait.texture = portrait_texture(band_name)
 	add_child(portrait)
-
-	_header = Control.new()
-	_header.position = Vector2(92, 6)
-	_header.size = Vector2(538, 74)
-	_header.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_header.draw.connect(_draw_header)
-	add_child(_header)
-	var bubble_text: String = SPEECH_BUBBLE_TEXTS.get(band_name, "")
 	if bubble_text != "":
 		_add_speech_bubble(bubble_text)
 
-	_bars = _add_panel(BARS_PANEL_RECT)
+	_header = Control.new()
+	_header.name = "Header"
+	_header.size = ScreenLayout.SCREEN_SIZE
+	_header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_header.draw.connect(_draw_header)
+	add_child(_header)
+
+	_bars = Control.new()
+	_bars.name = "ScoreRows"
+	_bars.position = BARS_RECT.position
+	_bars.size = BARS_RECT.size
 	_bars.mouse_filter = Control.MOUSE_FILTER_STOP
 	_bars.draw.connect(_draw_bars)
 	_bars.gui_input.connect(_on_bars_input)
@@ -122,8 +189,14 @@ func _ready() -> void:
 	_bars.focus_mode = Control.FOCUS_ALL
 	_bars.focus_entered.connect(func() -> void: focus_group(maxi(0, _focused_group_index)))
 	_bars.focus_exited.connect(_bars.queue_redraw)
+	add_child(_bars)
 
-	var orbit_panel: Control = _add_panel(ORBIT_PANEL_RECT)
+	# The flight log page, laid over the score page by the Flight log button.
+	_flight_log = _add_panel(self, FLIGHT_LOG_RECT)
+	_flight_log.name = "FlightLog"
+	_flight_log.mouse_filter = Control.MOUSE_FILTER_STOP
+	_flight_log.visible = false
+	var orbit_panel: Control = _add_panel(_flight_log, ORBIT_PANEL_RECT)
 	orbit_panel.draw.connect(func() -> void:
 		PixelGlyphs.draw_text(orbit_panel, Vector2(8, 4), "ORBIT", COLOR_HEADER, PixelGlyphs.TITLE_SIZE_PIXELS))
 	_schematic = OrbitSchematic.new()
@@ -142,7 +215,7 @@ func _ready() -> void:
 	_orbit_legend.draw.connect(_draw_orbit_legend)
 	orbit_panel.add_child(_orbit_legend)
 
-	_timeline = _add_panel(TIMELINE_PANEL_RECT)
+	_timeline = _add_panel(_flight_log, TIMELINE_PANEL_RECT)
 	_timeline.mouse_filter = Control.MOUSE_FILTER_STOP
 	_timeline.draw.connect(_draw_timeline)
 	_timeline.gui_input.connect(_on_timeline_input)
@@ -153,6 +226,7 @@ func _ready() -> void:
 	_timeline.focus_exited.connect(func() -> void: hover_event(-1))
 
 	_detail_label = RichTextLabel.new()
+	_detail_label.name = "Detail"
 	_detail_label.bbcode_enabled = true
 	_detail_label.position = DETAIL_RECT.position
 	_detail_label.size = DETAIL_RECT.size
@@ -161,18 +235,46 @@ func _ready() -> void:
 	_detail_label.add_theme_font_size_override("bold_font_size", 8)
 	_detail_label.add_theme_constant_override("line_separation", -1)
 	var detail_style := StyleBoxFlat.new()
-	detail_style.bg_color = Color(ScreenLayout.COLOR_SPACE_BLACK, 0.7)
+	detail_style.bg_color = ScreenLayout.COLOR_SPACE_BLACK
+	detail_style.border_color = ScreenLayout.COLOR_MONITOR_FRAME
+	detail_style.set_border_width_all(1)
 	detail_style.set_content_margin_all(3)
 	_detail_label.add_theme_stylebox_override("normal", detail_style)
 	add_child(_detail_label)
 	_show_detail("")
 
+	_flight_log_button = Button.new()
+	_flight_log_button.name = "FlightLogButton"
+	_flight_log_button.text = FLIGHT_LOG_BUTTON_TEXT
+	_flight_log_button.position = FLIGHT_LOG_BUTTON_RECT.position
+	_flight_log_button.size = FLIGHT_LOG_BUTTON_RECT.size
+	_flight_log_button.pressed.connect(func() -> void: show_flight_log(not _flight_log.visible))
+	add_child(_flight_log_button)
+
 	var menu_button := Button.new()
+	menu_button.name = "MenuButton"
 	menu_button.text = "Back to main menu"
-	menu_button.position = Vector2(426, 356)
-	menu_button.size = Vector2(204, 40)
+	menu_button.position = MENU_BUTTON_RECT.position
+	menu_button.size = MENU_BUTTON_RECT.size
 	menu_button.pressed.connect(GameState.go_to_scene.bind(GameState.MAIN_MENU_SCENE_PATH))
 	add_child(menu_button)
+
+
+## The end-screen mock-up for a band; an unknown band uses Failure's.
+static func background_path(band_name: String) -> String:
+	if not PORTRAIT_NAMES.has(band_name):
+		band_name = "Failure"
+	return END_SCREEN_FOLDER + "final_" + band_name.to_lower().replace(" ", "_") + ".png"
+
+
+## Shows the flight log page (orbit and events) over the score rows, or the
+## score page again. The detail strip keeps what it shows.
+func show_flight_log(is_shown: bool) -> void:
+	_flight_log.visible = is_shown
+	_bars.visible = not is_shown
+	_flight_log_button.text = SCORE_PAGE_BUTTON_TEXT if is_shown else FLIGHT_LOG_BUTTON_TEXT
+	if _selected_group_index < 0 and _selected_event_index < 0:
+		_show_detail("")
 
 
 ## Writes the full sentences of one score group (by index in score_groups)
@@ -232,12 +334,33 @@ func hover_event(event_index: int) -> void:
 func _show_detail(bbcode_text: String) -> void:
 	if bbcode_text.is_empty():
 		var muted_code: String = PixelGlyphs.COLOR_MUTED_TEXT.to_html(false)
-		_detail_label.text = "[color=#%s]%s[/color]" % [muted_code, DETAIL_HINT]
+		var hint: String = FLIGHT_LOG_HINT if _flight_log != null and _flight_log.visible else DETAIL_HINT
+		_detail_label.text = "%s[color=#%s]%s[/color]" % [_loss_summary(), muted_code, hint]
 	else:
 		_detail_label.text = bbcode_text
 
 
-func _add_panel(rectangle: Rect2) -> Panel:
+## The first line of the empty detail strip: what the flight lost, from the
+## groups' 2-3 word tags (the mock-up's rows have no room for them).
+func _loss_summary() -> String:
+	if _score == null:
+		return "Complete a flight to see its score.\n"
+	if _score.is_launch_failure:
+		return "[color=#%s]Launch failed: every group scores 0.[/color]\n" % ScreenLayout.COLOR_WARNING_RED.to_html(false)
+	var losses: Array[String] = []
+	var penalty_points := 0.0
+	for group in score_groups:
+		if group["has_loss"]:
+			losses.append("%s %s" % [group["title"].capitalize(), group["tag"].replace("[", "[lb]")])
+		penalty_points += group["penalty_points"]
+	if penalty_points < 0.0:
+		losses.append("[color=#%s]penalty %s[/color]" % [ScreenLayout.COLOR_WARNING_RED.to_html(false), NumberFormat.points_row(penalty_points)])
+	if losses.is_empty():
+		return "Full marks in every group.\n"
+	return "Lost: %s\n" % " · ".join(losses)
+
+
+func _add_panel(parent: Control, rectangle: Rect2) -> Panel:
 	var panel := Panel.new()
 	panel.position = rectangle.position
 	panel.size = rectangle.size
@@ -246,7 +369,7 @@ func _add_panel(rectangle: Rect2) -> Panel:
 	style.border_color = ScreenLayout.COLOR_MONITOR_FRAME
 	style.set_border_width_all(2)
 	panel.add_theme_stylebox_override("panel", style)
-	add_child(panel)
+	parent.add_child(panel)
 	return panel
 
 
@@ -305,21 +428,22 @@ func _draw_fireworks(fireworks: Control) -> void:
 			fireworks.draw_rect(Rect2(center.round() - Vector2(1, 1), Vector2(3, 3)), ScreenLayout.COLOR_TEXT_LIGHT)
 
 
-## Adds Amit's speech bubble beside the band name, its tail pointing back at him.
+## Adds Amit's speech bubble at the top of the AMIT box, its tail pointing
+## down at his head.
 func _add_speech_bubble(text: String) -> void:
 	var bubble := PanelContainer.new()
 	bubble.name = "SpeechBubble"
-	# Beside the band name drawn by _draw_header (header at x 92, band name at 16 px).
-	var band_text: String = _score.band_name.to_upper() if _score != null else ""
-	bubble.position = Vector2(92 + PixelGlyphs.text_width(band_text, 16) + 10, 4)
+	bubble.position = BUBBLE_RECT.position
+	bubble.custom_minimum_size = Vector2(BUBBLE_RECT.size.x, 0)
+	bubble.size = Vector2(BUBBLE_RECT.size.x, 0)
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
 	style.bg_color = ScreenLayout.COLOR_TEXT_LIGHT
 	style.border_color = COLOR_EARNED
 	style.set_border_width_all(2)
 	style.set_corner_radius_all(6)
-	style.content_margin_left = 8
-	style.content_margin_right = 8
+	style.content_margin_left = 5
+	style.content_margin_right = 5
 	style.content_margin_top = 3
 	style.content_margin_bottom = 3
 	bubble.add_theme_stylebox_override("panel", style)
@@ -327,6 +451,8 @@ func _add_speech_bubble(text: String) -> void:
 	var label := Label.new()
 	label.name = "SpeechBubbleLabel"
 	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.add_theme_font_size_override("font_size", 12)
 	label.add_theme_color_override("font_color", ScreenLayout.COLOR_SPACE_BLACK)
 	bubble.add_child(label)
@@ -339,11 +465,11 @@ func _add_speech_bubble(text: String) -> void:
 	add_child(tail)
 
 
-## The bubble's tail: a white wedge from the bubble's lower-left corner
-## towards Amit, outlined like the bubble. Drawn over the bubble's border so
-## the wedge opens into the bubble.
+## The bubble's tail: a white wedge from the bubble's lower edge down towards
+## Amit, outlined like the bubble. Drawn over the bubble's border so the
+## wedge opens into the bubble.
 func _draw_bubble_tail(tail: Control, bubble: Control) -> void:
-	var base_left := Vector2(bubble.position.x + 6.0, bubble.position.y + bubble.size.y - 2.0)
+	var base_left := Vector2(bubble.position.x + BUBBLE_TAIL_BASE_LEFT_PIXELS, bubble.position.y + bubble.size.y - 2.0)
 	var base_right := base_left + Vector2(BUBBLE_TAIL_BASE_WIDTH_PIXELS, 0.0)
 	var tip: Vector2 = (base_left + BUBBLE_TAIL_TIP_OFFSET).round()
 	tail.draw_colored_polygon(PackedVector2Array([base_left, base_right, tip]), ScreenLayout.COLOR_TEXT_LIGHT)
@@ -351,24 +477,17 @@ func _draw_bubble_tail(tail: Control, bubble: Control) -> void:
 	tail.draw_line(base_right, tip, COLOR_EARNED, 2.0)
 
 
+## The mock-up shows the band title and SCORE; this adds the end reason, time
+## and reserve above the title, and the total beside SCORE.
 func _draw_header() -> void:
 	if _score == null:
-		_draw_header_plate(Rect2(0, 4, PixelGlyphs.text_width("MISSION REPORT", 16), 16))
-		PixelGlyphs.draw_text(_header, Vector2(0, 4), "MISSION REPORT", COLOR_HEADER, 16)
-		_draw_header_plate(Rect2(0, 28, PixelGlyphs.text_width("No flight has been scored yet.", 10), 12))
-		PixelGlyphs.draw_text(_header, Vector2(0, 28), "No flight has been scored yet.", ScreenLayout.COLOR_TEXT_LIGHT, 10)
+		PixelGlyphs.draw_text(_header, CHIPS_POSITION, "No flight has been scored yet.", ScreenLayout.COLOR_TEXT_LIGHT, 10)
 		return
-	var band_text: String = _score.band_name.to_upper()
-	_draw_header_plate(Rect2(0, 2, PixelGlyphs.text_width(band_text, 16), 16))
-	PixelGlyphs.draw_text(_header, Vector2(0, 2), band_text, COLOR_HEADER, 16)
 	var total_text: String = "0" if _score.is_launch_failure else NumberFormat.points_total(_score.total_points)
-	var total_width: float = PixelGlyphs.text_width(total_text, 24)
-	_draw_header_plate(Rect2(0, 24, total_width + 4 + PixelGlyphs.text_width("pts", 10), 22))
-	PixelGlyphs.draw_text(_header, Vector2(0, 22), total_text, ScreenLayout.COLOR_TEXT_LIGHT, 24)
-	PixelGlyphs.draw_text(_header, Vector2(total_width + 4, 34), "pts", PixelGlyphs.COLOR_MUTED_TEXT, 10)
+	var total_width: float = PixelGlyphs.draw_text(_header, TOTAL_POSITION, total_text, ScreenLayout.COLOR_TEXT_LIGHT, 24)
+	PixelGlyphs.draw_text(_header, TOTAL_POSITION + Vector2(total_width + 4, 12), "pts", PixelGlyphs.COLOR_MUTED_TEXT, 10)
 
-	var chip_left := 0.0
-	var chip_top := 60.0
+	var chip_left: float = CHIPS_POSITION.x
 	var reason_severity: int = WarningLamps.Severity.OK
 	var reason_text := "no flight data"
 	# Without flight data there is nothing to judge: a grey dot, not a green one.
@@ -392,40 +511,26 @@ func _draw_header() -> void:
 		chips.append(["clock", NumberFormat.duration(_result.flight_duration_seconds), ScreenLayout.COLOR_MONITOR_GRID_LINE])
 		chips.append(["fuel", "%s reserve" % NumberFormat.meters_per_second(_result.reserve_delta_v_meters_per_second),
 				ScreenLayout.COLOR_MONITOR_GRID_LINE])
-	var chips_width := 0.0
 	for chip in chips:
-		chips_width += PixelGlyphs.chip_width(chip[0], chip[1]) + 10.0
-	_draw_header_plate(Rect2(0, chip_top, chips_width - 10.0, PixelGlyphs.LINE_HEIGHT_PIXELS))
-	for chip in chips:
-		chip_left += PixelGlyphs.draw_chip(_header, Vector2(chip_left, chip_top), chip[0], chip[1], chip[2]) + 10.0
+		chip_left += PixelGlyphs.draw_chip(_header, Vector2(chip_left, CHIPS_POSITION.y), chip[0], chip[1], chip[2]) + 10.0
 
 
-## A dark plate under one row of header text (text_rect in header pixels).
-func _draw_header_plate(text_rect: Rect2) -> void:
-	_header.draw_rect(text_rect.grow(HEADER_PLATE_MARGIN_PIXELS), COLOR_HEADER_PLATE)
+## One row's frame in _bars pixels: the mock-up's label and box together.
+func _row_rect(group_index: int) -> Rect2:
+	var box: Rect2 = SCORE_ROW_BOXES[group_index]
+	return Rect2(1, box.position.y - BARS_RECT.position.y - 6.0, BARS_RECT.size.x - 2, box.size.y + 12.0)
 
 
 func _draw_bars() -> void:
-	PixelGlyphs.draw_text(_bars, Vector2(8, 4), "SCORE", COLOR_HEADER, PixelGlyphs.TITLE_SIZE_PIXELS)
-	if _score == null:
-		PixelGlyphs.draw_text(_bars, Vector2(8, BAR_ROW_TOP_PIXELS), "Complete a flight to see its score.", PixelGlyphs.COLOR_MUTED_TEXT)
-		return
-	if _score.is_launch_failure:
-		PixelGlyphs.draw_chip(_bars, Vector2(8, BAR_ROW_TOP_PIXELS), "lamp_blocking", "launch failed: every group scores 0",
-				ScreenLayout.COLOR_WARNING_RED)
-		return
-	PixelGlyphs.draw_text(_bars, Vector2(BAR_LEFT_PIXELS + 120, 6), "earned", PixelGlyphs.COLOR_MUTED_TEXT)
-	_bars.draw_rect(Rect2(BAR_LEFT_PIXELS + 112, 8, 6, 6), COLOR_EARNED)
-	_draw_dither(Rect2(BAR_LEFT_PIXELS + 156, 8, 6, 6))
-	PixelGlyphs.draw_text(_bars, Vector2(BAR_LEFT_PIXELS + 164, 6), "lost", PixelGlyphs.COLOR_MUTED_TEXT)
-	for group_index in score_groups.size():
+	for group_index in mini(score_groups.size(), SCORE_ROW_BOXES.size()):
 		_draw_bar_row(group_index)
 
 
+## Fills one of the mock-up's row boxes: earned in orange, lost dithered, the
+## points right of the box and a red mark left of it for a penalty.
 func _draw_bar_row(group_index: int) -> void:
 	var group: Dictionary = score_groups[group_index]
-	var row_top: float = BAR_ROW_TOP_PIXELS + group_index * BAR_ROW_HEIGHT_PIXELS
-	var row_rect := Rect2(4, row_top - 2, BARS_PANEL_RECT.size.x - 8, BAR_ROW_HEIGHT_PIXELS - 4)
+	var row_rect: Rect2 = _row_rect(group_index)
 	if group_index == _selected_group_index:
 		_bars.draw_rect(row_rect, ScreenLayout.COLOR_ACCENT_ORANGE, false, 1.0)
 	elif group_index == _hovered_group_index:
@@ -435,35 +540,25 @@ func _draw_bar_row(group_index: int) -> void:
 		_bars.draw_rect(row_rect.grow(1.0), ScreenLayout.COLOR_MONITOR_GRID_LINE, false, 1.0)
 		_bars.draw_rect(Rect2(row_rect.position.x - 1, row_rect.position.y + 2, 3, row_rect.size.y - 4), ScreenLayout.COLOR_MONITOR_GRID_LINE)
 
-	PixelGlyphs.draw_text(_bars, Vector2(BAR_LEFT_PIXELS, row_top), group["title"], ScreenLayout.COLOR_TEXT_LIGHT, PixelGlyphs.TITLE_SIZE_PIXELS)
-	var tag_text: String = group["tag"]
-	var tag_glyph := "check"
-	var tag_color: Color = PixelGlyphs.COLOR_GOOD_GREEN
-	if group["has_loss"]:
-		tag_glyph = "arrow_down"
-		tag_color = PixelGlyphs.COLOR_AMBER
-	elif group["lines"].is_empty():
-		tag_glyph = ""
-		tag_color = PixelGlyphs.COLOR_MUTED_TEXT
-	var tag_width: float = PixelGlyphs.chip_width(tag_glyph, tag_text)
-	PixelGlyphs.draw_chip(_bars, Vector2(row_rect.end.x - tag_width - 4, row_top + 1), tag_glyph, tag_text, tag_color, tag_color)
-
+	var bar_rect: Rect2 = SCORE_ROW_BOXES[group_index]
+	bar_rect.position -= BARS_RECT.position
 	var maximum_points: float = group["maximum_points"]
 	var earned_points: float = group["earned_points"]
-	var penalty_points: float = group["penalty_points"]
-	var bar_top: float = row_top + 14.0
-	var bar_rect := Rect2(BAR_LEFT_PIXELS, bar_top, BAR_WIDTH_PIXELS, BAR_HEIGHT_PIXELS)
-	if maximum_points > 0.0:
-		var earned_width: float = roundf(BAR_WIDTH_PIXELS * clampf(earned_points / maximum_points, 0.0, 1.0))
+	if _score == null or _score.is_launch_failure:
+		earned_points = 0.0
+	if _score != null and maximum_points > 0.0:
+		var earned_width: float = roundf(bar_rect.size.x * clampf(earned_points / maximum_points, 0.0, 1.0))
 		_draw_dither(bar_rect)
-		_bars.draw_rect(Rect2(bar_rect.position, Vector2(earned_width, BAR_HEIGHT_PIXELS)), COLOR_EARNED)
-	_bars.draw_rect(bar_rect.grow(1.0), ScreenLayout.COLOR_MONITOR_FRAME, false, 1.0)
+		_bars.draw_rect(Rect2(bar_rect.position, Vector2(earned_width, bar_rect.size.y)), COLOR_EARNED)
+	if _score == null:
+		return
+	var text_top: float = bar_rect.position.y + roundf((bar_rect.size.y - PixelGlyphs.LINE_HEIGHT_PIXELS) * 0.5)
 	var points_text := "%s/%s" % [NumberFormat.points_row(earned_points), NumberFormat.points_row(maximum_points)]
-	var points_left: float = bar_rect.end.x + 6.0
-	points_left += PixelGlyphs.draw_text(_bars, Vector2(points_left, bar_top), points_text, ScreenLayout.COLOR_TEXT_LIGHT) + 4.0
-	if penalty_points < 0.0:
-		PixelGlyphs.draw_chip(_bars, Vector2(points_left, bar_top), "lamp_blocking", "penalty %s" % NumberFormat.points_row(penalty_points),
-				ScreenLayout.COLOR_WARNING_RED, ScreenLayout.COLOR_WARNING_RED)
+	if PixelGlyphs.text_width(points_text) > SCORE_RIGHT_EDGE_PIXELS - SCORE_POINTS_LEFT_PIXELS:
+		points_text = NumberFormat.points_row(earned_points)
+	PixelGlyphs.draw_text(_bars, Vector2(SCORE_POINTS_LEFT_PIXELS - BARS_RECT.position.x, text_top), points_text, ScreenLayout.COLOR_TEXT_LIGHT)
+	if float(group["penalty_points"]) < 0.0:
+		PixelGlyphs.draw_glyph(_bars, "lamp_blocking", Vector2(PENALTY_MARK_LEFT_PIXELS - BARS_RECT.position.x, text_top + 1), ScreenLayout.COLOR_WARNING_RED)
 
 
 ## The lost part of a bar: a 2 x 2 checker, so lost and earned differ by
@@ -572,10 +667,10 @@ func _event_title(event: Dictionary) -> String:
 func _group_index_at(local_position: Vector2) -> int:
 	if _score == null or _score.is_launch_failure:
 		return -1
-	var group_index: int = floori((local_position.y - BAR_ROW_TOP_PIXELS + 2.0) / BAR_ROW_HEIGHT_PIXELS)
-	if group_index < 0 or group_index >= score_groups.size():
-		return -1
-	return group_index
+	for group_index in mini(score_groups.size(), SCORE_ROW_BOXES.size()):
+		if _row_rect(group_index).has_point(local_position):
+			return group_index
+	return -1
 
 
 func _event_index_at(local_position: Vector2) -> int:
