@@ -354,6 +354,9 @@ func _check_tank_rules(report: TestReport) -> void:
 
 func _check_launch_button_and_chips(report: TestReport) -> void:
 	_select_first_mission()
+	# Retain the manual launch-selection contract as an explicit legacy fixture.
+	GameState.plan.planning_mode = MissionPlan.PlanningMode.LEGACY_MANUAL
+	GameState.notify_plan_changed()
 	var console: Control = _create_screen(PLANNING_CONSOLE_SCENE_PATH)
 	console.zoom_duration_seconds = 0.0
 	var launch_button: Button = console.launch_button

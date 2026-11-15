@@ -27,6 +27,7 @@ const ROCKET_DESIGN_STAT_CHIP_RECTS: Array[Rect2] = [
 ]
 const LAUNCH_BUTTON_SIZE := Vector2(84, 28)
 const EXAMPLE_BUTTON_SIZE := Vector2(132, 28)
+const PLAN_BUTTON_SIZE := Vector2(96, 28)
 const BUTTON_GAP_PIXELS := 6.0
 const MESSAGE_FONT_SIZE_PIXELS := 8
 const BUTTON_FONT_SIZE_PIXELS := 10
@@ -196,7 +197,9 @@ func _create_overview() -> void:
 	add_child(_overview)
 
 	var background := TextureRect.new()
+	background.name = "AmitPlanningBackground"
 	background.texture = load(ScreenLayout.PLANNING_OVERVIEW_BACKGROUND_PATH)
+	background.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	background.stretch_mode = TextureRect.STRETCH_SCALE
 	background.size = ScreenLayout.SCREEN_SIZE
@@ -254,6 +257,15 @@ func _create_top_bezel() -> void:
 	_set_size_when_font_is_known(example_rocket_button, EXAMPLE_BUTTON_SIZE)
 
 	var buttons_right_pixels: float = example_rocket_button.position.x + EXAMPLE_BUTTON_SIZE.x + BUTTON_GAP_PIXELS
+	var plan_button := Button.new()
+	plan_button.text = "Plan flight"
+	plan_button.position = Vector2(buttons_right_pixels, launch_button.position.y)
+	plan_button.focus_mode = Control.FOCUS_NONE
+	plan_button.add_theme_font_size_override("font_size", BUTTON_FONT_SIZE_PIXELS)
+	plan_button.pressed.connect(zoom_into_orbit_planning)
+	_overview.add_child(plan_button)
+	_set_size_when_font_is_known(plan_button, PLAN_BUTTON_SIZE)
+	buttons_right_pixels += PLAN_BUTTON_SIZE.x + BUTTON_GAP_PIXELS
 	var hint_label := Label.new()
 	hint_label.text = HINT_ZOOM
 	hint_label.position = Vector2(buttons_right_pixels, top_bezel.position.y + 2)
@@ -331,7 +343,7 @@ func _create_detail_holder(detail_screen: Control, chip_rects: Array[Rect2], dra
 func _on_build_example_rocket_pressed() -> void:
 	if GameState.mission.is_empty() or GameState.has_launched:
 		return
-	ExampleFlight.fill_reference_flight(GameState.design, GameState.plan, GameState.mission)
+	ExampleFlight.fill_automatic_flight(GameState.design, GameState.plan)
 	GameState.notify_design_changed()
 	GameState.notify_plan_changed()
 
@@ -372,12 +384,8 @@ func _refresh() -> void:
 		launch_button.tooltip_text = "Cannot launch: " + " ".join(PackedStringArray(blocking_problems))
 	_update_message()
 
-	# The overview monitor is small, so it uses a smaller scale than the mission's own.
-	var overview_display := {"display": {
-		"body_radius_pixels": OVERVIEW_BODY_RADIUS_PIXELS,
-		"pixels_per_kilometer": OVERVIEW_PIXELS_PER_KILOMETER,
-	}}
-	_orbit_monitor.configure(GameData.body(GameState.mission.get("body_id", "earth")), overview_display)
+	# OrbitView scales the complete mission itself, keeping its rings and zones.
+	_orbit_monitor.configure(GameData.body(GameState.mission.get("body_id", "earth")), GameState.mission)
 	# A rocket that cannot leave the pad has a path of zero length, which
 	# OrbitView cannot draw without engine warnings. The monitor then shows
 	# the body alone.

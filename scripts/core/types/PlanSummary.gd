@@ -26,3 +26,9 @@ var reserve_delta_v_meters_per_second: float = 0.0
 var warnings: Array[String] = []
 ## The sentences of warnings that stop a launch. Empty means Launch is allowed.
 var blocking_problems: Array[String] = []
+
+## Automatic ascent and per-player-pulse physical allocations. Null for legacy plans.
+var ascent: AscentResult
+var pulse_allocations: Array[BurnAllocation] = []
+var mass_after_ascent_kilograms: float = 0.0
+var mass_after_pulse_kilograms: Array[float] = []

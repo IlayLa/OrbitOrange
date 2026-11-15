@@ -64,7 +64,18 @@
 				"inner_altitude_kilometers": 700,
 				"outer_altitude_kilometers": 1000,
 				"event_type_ids": [
-					"satellite_conjunction"
+					"satellite_conjunction",
+					"debris_shower"
+				]
+			},
+			{
+				"id": "high_altitude_solar_activity_placeholder",
+				"name": "Solar activity",
+				"type": "altitude_band",
+				"inner_altitude_kilometers": 2000,
+				"outer_altitude_kilometers": 100000,
+				"event_type_ids": [
+					"solar_flare"
 				]
 			}
 		],
@@ -73,12 +84,98 @@
 				{
 					"inner_altitude_kilometers": 0,
 					"outer_altitude_kilometers": 2000,
-					"events_per_hour": 0.2
+					"events_per_hour": 0.2,
+					"is_placeholder": true
 				},
 				{
 					"inner_altitude_kilometers": 2000,
 					"outer_altitude_kilometers": 100000,
-					"events_per_hour": 0.02
+					"events_per_hour": 0.02,
+					"is_placeholder": true
+				}
+			],
+			"debris_shower": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.12,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.02,
+					"is_placeholder": true
+				}
+			],
+			"unknown_asteroid": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.005,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.02,
+					"is_placeholder": true
+				}
+			],
+			"solar_flare": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.04,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.12,
+					"is_placeholder": true
+				}
+			],
+			"engine_malfunction": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				}
+			],
+			"propellant_leak": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				}
+			],
+			"sensor_failure": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
 				}
 			]
 		},
@@ -165,7 +262,18 @@
 				"inner_altitude_kilometers": 700,
 				"outer_altitude_kilometers": 1000,
 				"event_type_ids": [
-					"satellite_conjunction"
+					"satellite_conjunction",
+					"debris_shower"
+				]
+			},
+			{
+				"id": "high_altitude_solar_activity_placeholder",
+				"name": "Solar activity",
+				"type": "altitude_band",
+				"inner_altitude_kilometers": 2000,
+				"outer_altitude_kilometers": 100000,
+				"event_type_ids": [
+					"solar_flare"
 				]
 			}
 		],
@@ -174,12 +282,98 @@
 				{
 					"inner_altitude_kilometers": 0,
 					"outer_altitude_kilometers": 2000,
-					"events_per_hour": 0.2
+					"events_per_hour": 0.2,
+					"is_placeholder": true
 				},
 				{
 					"inner_altitude_kilometers": 2000,
 					"outer_altitude_kilometers": 100000,
-					"events_per_hour": 0.02
+					"events_per_hour": 0.02,
+					"is_placeholder": true
+				}
+			],
+			"debris_shower": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.12,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.02,
+					"is_placeholder": true
+				}
+			],
+			"unknown_asteroid": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.005,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.02,
+					"is_placeholder": true
+				}
+			],
+			"solar_flare": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.04,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.12,
+					"is_placeholder": true
+				}
+			],
+			"engine_malfunction": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				}
+			],
+			"propellant_leak": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				}
+			],
+			"sensor_failure": [
+				{
+					"inner_altitude_kilometers": 0,
+					"outer_altitude_kilometers": 2000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
+				},
+				{
+					"inner_altitude_kilometers": 2000,
+					"outer_altitude_kilometers": 100000,
+					"events_per_hour": 0.03,
+					"is_placeholder": true
 				}
 			]
 		},
