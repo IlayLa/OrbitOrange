@@ -18,7 +18,7 @@ var time_scales: Array[float] = []
 var _mission_time_label: Label
 var _next_pulse_label: Label
 var _time_scale_buttons: Array[Button] = []
-var _highlight_style: StyleBoxFlat
+var _highlight_style: StyleBox
 
 
 func _ready() -> void:
@@ -68,10 +68,11 @@ func clock_text() -> String:
 
 
 func _create_time_scale_buttons() -> void:
-	_highlight_style = StyleBoxFlat.new()
-	_highlight_style.bg_color = ScreenLayout.COLOR_ACCENT_ORANGE
-	_highlight_style.border_color = ScreenLayout.COLOR_TEXT_LIGHT
-	_highlight_style.set_border_width_all(1)
+	# The chosen time scale wears the skin's pressed frame (green in design/buttons.png).
+	var skin := ThemeDB.get_project_theme()
+	if skin == null:
+		skin = ThemeDB.get_default_theme()
+	_highlight_style = skin.get_stylebox("pressed", "Button")
 
 	var controls_rect := ExecutionLayout.TIME_CONTROLS_RECT
 	var button_count := time_scales.size()
