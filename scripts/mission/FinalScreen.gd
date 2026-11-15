@@ -27,9 +27,9 @@ const PORTRAIT_NAMES := {
 const PORTRAIT_CROP := Rect2(19, 1, 70, 70)
 const PERFECT_SPEECH_TEXT := "I Like It - Perfect"
 const SPEECH_BUBBLE_TEXTS := {
-	"Great Success": PERFECT_SPEECH_TEXT,
+	"Great Success": "Great Success!!",
 	"Perfect": PERFECT_SPEECH_TEXT,
-	"Scientific Breakthrough": PERFECT_SPEECH_TEXT,
+	"Scientific Breakthrough": "I Like It - Breakthrough",
 }
 const FIREWORK_BANDS := ["Scientific Breakthrough"]
 ## Burst centres around the portrait, in screen pixels, and their start offsets in the cycle.

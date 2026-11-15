@@ -263,8 +263,12 @@ func _check_final_screen_portraits(report: TestReport) -> void:
 		var portrait := FINAL_SCREEN_SCRIPT.portrait_texture(band_name)
 		report.check(portrait.atlas != null and portrait.atlas.resource_path.begins_with("res://assets/art/portraits/amit_"), "%s portrait is Amit's art" % band_name)
 		var bubble_label: Label = screen.find_child("SpeechBubbleLabel", true, false)
-		if band_name in ["Great Success", "Perfect", "Scientific Breakthrough"]:
-			report.check(bubble_label != null and bubble_label.text == "I Like It - Perfect", "%s final screen shows Amit's speech bubble" % band_name)
+		if band_name == "Great Success":
+			report.check(bubble_label != null and bubble_label.text == "Great Success!!", "Great Success final screen says Great Success!!")
+		elif band_name == "Perfect":
+			report.check(bubble_label != null and bubble_label.text == "I Like It - Perfect", "Perfect final screen says I Like It - Perfect")
+		elif band_name == "Scientific Breakthrough":
+			report.check(bubble_label != null and bubble_label.text == "I Like It - Breakthrough", "Scientific Breakthrough final screen says I Like It - Breakthrough")
 		else:
 			report.check(bubble_label == null, "%s final screen has no speech bubble" % band_name)
 		var fireworks: Node = screen.find_child("Fireworks", true, false)
