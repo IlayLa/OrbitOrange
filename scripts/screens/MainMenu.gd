@@ -31,6 +31,17 @@ func _ready() -> void:
 	start_button.pressed.connect(_on_start_new_game_pressed)
 	add_child(start_button)
 
+	# Where every number of the catalogue comes from (the part popup shows a
+	# one-line tag only).
+	var codex := DataSourcesCodex.new()
+	var sources_button := Button.new()
+	sources_button.text = "Data sources"
+	sources_button.position = Vector2(245, 334)
+	sources_button.size = Vector2(150, 26)
+	sources_button.pressed.connect(codex.open_at)
+	add_child(sources_button)
+	add_child(codex)
+
 
 func _on_start_new_game_pressed() -> void:
 	GameState.start_new_game()
