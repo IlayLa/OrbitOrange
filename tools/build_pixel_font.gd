@@ -10,6 +10,12 @@ extends SceneTree
 ## touching this file. Adding a character means drawing it on the sheet and
 ## adding it to the matching row string here.
 ##
+## The sheet has no punctuation yet. STAND_IN_GLYPHS draws the punctuation
+## the game's text uses as small pixel stand-ins, so lines keep the font's
+## height instead of falling back to a taller system font. A character drawn
+## on the sheet always wins over its stand-in; delete the stand-in once the
+## artist has drawn it.
+##
 ## Rebuild after editing the sheet (Git Bash, from the project folder):
 ##     "$GODOT_EXECUTABLE" --headless --path . -s res://tools/build_pixel_font.gd
 
@@ -41,6 +47,49 @@ const GLYPH_ROWS := [
 	{"area": Rect2i(8, 54, 56, 10), "baseline": 62, "characters": "θϒΔ$", "breaks": [23]},
 ]
 
+## Stand-ins until the sheet has these characters. Each is 8 rows: rows 0-6
+## are the cap height (row 6 is the baseline row), row 7 is the descender.
+const STAND_IN_BASELINE := 6
+const STAND_IN_GLYPHS := {
+	".": [".", ".", ".", ".", ".", ".", "#", "."],
+	",": ["..", "..", "..", "..", "..", ".#", ".#", "#."],
+	":": [".", ".", ".", "#", ".", ".", "#", "."],
+	";": ["..", "..", "..", ".#", "..", ".#", ".#", "#."],
+	"!": ["#", "#", "#", "#", "#", ".", "#", "."],
+	"?": [".##.", "#..#", "...#", "..#.", ".#..", "....", ".#..", "...."],
+	"'": ["#", "#", ".", ".", ".", ".", ".", "."],
+	"\"": ["#.#", "#.#", "...", "...", "...", "...", "...", "..."],
+	"’": [".#", ".#", "#.", "..", "..", "..", "..", ".."],
+	"%": ["##...", "##..#", "...#.", "..#..", ".#...", "#..##", "...##", "....."],
+	"(": [".#", "#.", "#.", "#.", "#.", "#.", ".#", ".."],
+	")": ["#.", ".#", ".#", ".#", ".#", ".#", "#.", ".."],
+	"[": ["##", "#.", "#.", "#.", "#.", "#.", "##", ".."],
+	"]": ["##", ".#", ".#", ".#", ".#", ".#", "##", ".."],
+	"/": ["...#", "...#", "..#.", "..#.", ".#..", ".#..", "#...", "...."],
+	"+": [".....", ".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."],
+	"-": ["...", "...", "...", "...", "###", "...", "...", "..."],
+	"−": ["....", "....", "....", "....", "####", "....", "....", "...."],
+	"–": ["....", "....", "....", "....", "####", "....", "....", "...."],
+	"—": [".....", ".....", ".....", ".....", "#####", ".....", ".....", "....."],
+	"_": ["....", "....", "....", "....", "....", "....", "....", "####"],
+	"=": ["...", "...", "...", "###", "...", "###", "...", "..."],
+	"<": ["...", "..#", ".#.", "#..", ".#.", "..#", "...", "..."],
+	">": ["...", "#..", ".#.", "..#", ".#.", "#..", "...", "..."],
+	"#": [".....", ".#.#.", "#####", ".#.#.", "#####", ".#.#.", ".....", "....."],
+	"*": ["...", "#.#", ".#.", "#.#", "...", "...", "...", "..."],
+	"·": [".", ".", ".", ".", "#", ".", ".", "."],
+	"•": ["..", "..", "..", "##", "##", "..", "..", ".."],
+	"×": ["...", "...", "...", "#.#", ".#.", "#.#", "...", "..."],
+	"✖": [".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "....."],
+	"→": [".....", ".....", "..#..", "...#.", "#####", "...#.", "..#..", "....."],
+	"≈": ["....", "....", ".#.#", "#.#.", "....", ".#.#", "#.#.", "...."],
+	"≥": ["...", "#..", ".#.", "..#", ".#.", "#..", "###", "..."],
+	"≤": ["...", "..#", ".#.", "#..", ".#.", "..#", "###", "..."],
+	"±": ["...", ".#.", "###", ".#.", "...", "###", "...", "..."],
+	"°": [".#.", "#.#", ".#.", "...", "...", "...", "...", "..."],
+	"▲": [".....", ".....", ".....", ".....", "..#..", ".###.", "#####", "....."],
+}
+
 
 func _init() -> void:
 	var sheet := Image.load_from_file(ProjectSettings.globalize_path(SHEET_PATH))
@@ -63,8 +112,9 @@ func _init() -> void:
 	font.set_cache_descent(0, FIXED_SIZE, DESCENT)
 	font.set_texture_image(0, cache_size, 0, _white_glyphs(sheet))
 
-	_add_glyph(font, cache_size, " ".unicode_at(0), Rect2i(), 0, SPACE_ADVANCE)
+	_add_glyph(font, cache_size, " ".unicode_at(0), Rect2i(), 0, SPACE_ADVANCE, 0)
 	var glyph_count := 0
+	var sheet_characters := ""
 	for glyph_row: Dictionary in GLYPH_ROWS:
 		var area: Rect2i = glyph_row["area"]
 		var characters: String = glyph_row["characters"]
@@ -77,15 +127,19 @@ func _init() -> void:
 		for index in characters.length():
 			var rect: Rect2i = glyph_rects[index]
 			_add_glyph(font, cache_size, characters.unicode_at(index), rect,
-					int(glyph_row["baseline"]), rect.size.x + LETTER_SPACING)
+					int(glyph_row["baseline"]), rect.size.x + LETTER_SPACING, 0)
 			glyph_count += 1
+		sheet_characters += characters
+
+	var stand_in_count := _add_stand_ins(font, cache_size, sheet_characters)
 
 	var error := ResourceSaver.save(font, FONT_PATH)
 	if error != OK:
 		push_error("Could not save %s (error %d)" % [FONT_PATH, error])
 		quit(1)
 		return
-	print("Saved %s with %d glyphs." % [FONT_PATH, glyph_count])
+	print("Saved %s with %d glyphs from the sheet and %d stand-ins." % [
+			FONT_PATH, glyph_count, stand_in_count])
 	quit()
 
 
@@ -140,8 +194,36 @@ func _white_glyphs(sheet: Image) -> Image:
 	return result
 
 
+## Draws every stand-in the sheet does not cover side by side on a second
+## texture and adds it to the font. Returns how many were added.
+func _add_stand_ins(font: FontFile, cache_size: Vector2i, sheet_characters: String) -> int:
+	var characters: Array[String] = []
+	var width := 0
+	for character: String in STAND_IN_GLYPHS:
+		if not sheet_characters.contains(character):
+			characters.append(character)
+			width += String(STAND_IN_GLYPHS[character][0]).length() + 1
+	var image := Image.create(maxi(width, 1), 8, false, Image.FORMAT_RGBA8)
+	var rects: Array[Rect2i] = []
+	var x := 0
+	for character in characters:
+		var rows: Array = STAND_IN_GLYPHS[character]
+		var glyph_width := String(rows[0]).length()
+		for y in rows.size():
+			for column in glyph_width:
+				if String(rows[y])[column] == "#":
+					image.set_pixel(x + column, y, Color.WHITE)
+		rects.append(_trim_rows(image, Rect2i(x, 0, glyph_width, rows.size())))
+		x += glyph_width + 1
+	font.set_texture_image(0, cache_size, 1, image)
+	for index in characters.size():
+		_add_glyph(font, cache_size, characters[index].unicode_at(0), rects[index],
+				STAND_IN_BASELINE, rects[index].size.x + LETTER_SPACING, 1)
+	return characters.size()
+
+
 func _add_glyph(font: FontFile, cache_size: Vector2i, character: int, rect: Rect2i,
-		baseline: int, advance: int) -> void:
+		baseline: int, advance: int, texture_index: int) -> void:
 	# A font without an outline file looks glyphs up by character code.
 	var glyph := character
 	font.set_glyph_advance(0, FIXED_SIZE, glyph, Vector2(advance, 0))
@@ -149,4 +231,4 @@ func _add_glyph(font: FontFile, cache_size: Vector2i, character: int, rect: Rect
 		font.set_glyph_offset(0, cache_size, glyph, Vector2(0, rect.position.y - (baseline + 1)))
 		font.set_glyph_size(0, cache_size, glyph, Vector2(rect.size))
 		font.set_glyph_uv_rect(0, cache_size, glyph, Rect2(rect))
-		font.set_glyph_texture_idx(0, cache_size, glyph, 0)
+		font.set_glyph_texture_idx(0, cache_size, glyph, texture_index)
