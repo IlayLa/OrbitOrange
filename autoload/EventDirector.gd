@@ -12,6 +12,7 @@ const COLLISION_RADII_METERS := {
 	"unknown_asteroid": 250.0,
 }
 const DEBRIS_FRAGMENT_COUNT := 3
+const DEBRIS_HITS_TO_DESTROY := 3
 
 ## Empty unless an encounter is paused for player action.
 var active_encounter: Dictionary = {}
@@ -33,6 +34,7 @@ var _encounters: Array[Dictionary] = []
 var _used_threat_ids: Dictionary = {}
 var _next_threat_id := 1
 var _next_encounter_id := 1
+var _debris_hits_sustained := 0
 var _session_number := 0
 var _is_session_active := false
 var _needs_prediction_refresh := false
@@ -162,6 +164,7 @@ func _reset_runtime(remove_contacts: bool) -> void:
 	_used_threat_ids.clear()
 	_next_threat_id = 1
 	_next_encounter_id = 1
+	_debris_hits_sustained = 0
 	_faults.reset(_flight)
 	_needs_prediction_refresh = false
 	_needs_flight_forecast_refresh = false
@@ -353,10 +356,15 @@ func _process_collisions() -> bool:
 			_flight.end_flight(FlightResult.EndReason.COLLISION)
 			return true
 		encounter["hit_count"] += 1
+		_debris_hits_sustained += 1
 		var instrument_name := _faults.damage_instrument(_flight.vehicle_state, _random)
 		if not instrument_name.is_empty():
 			encounter["damaged_instruments"].append(instrument_name)
-		_report_debris_damage(encounter)
+		var hull_destroyed := _debris_hits_sustained >= DEBRIS_HITS_TO_DESTROY
+		_report_debris_damage(encounter, hull_destroyed)
+		if hull_destroyed:
+			_flight.end_flight(FlightResult.EndReason.COLLISION)
+			return true
 	return false
 
 
@@ -378,17 +386,18 @@ func _impact_is_earlier(first: Dictionary, second: Dictionary) -> bool:
 	return first["threat"].threat_id < second["threat"].threat_id
 
 
-func _report_debris_damage(encounter: Dictionary) -> void:
+func _report_debris_damage(encounter: Dictionary, hull_destroyed: bool) -> void:
 	var hit_count: int = encounter["hit_count"]
 	var instrument_names: Array = encounter["damaged_instruments"]
 	var explanation := "%d debris fragments hit the spacecraft." % hit_count
 	if hit_count == 1:
 		explanation = "One debris fragment hit the spacecraft."
+	explanation += " Accumulated debris damage destroyed the hull." if hull_destroyed else " The hull sustained damage."
 	if not instrument_names.is_empty():
 		explanation += " The impacts disabled %s." % ", ".join(instrument_names)
 	if hit_count > instrument_names.size():
 		explanation += " At least one impact left the instruments unchanged because none were working."
-	_set_encounter_outcome(encounter, "Damage", explanation)
+	_set_encounter_outcome(encounter, "Collision" if hull_destroyed else "Damage", explanation)
 
 
 func _remove_contact(encounter: Dictionary, threat: Threat) -> void:
@@ -436,7 +445,6 @@ func _refresh_predictions(time_seconds: float) -> void:
 func _surface_alert(time_seconds: float) -> void:
 	if not active_encounter.is_empty():
 		return
-	var has_working_radar := _has_working_selected_radar(_flight.vehicle_state)
 	var first_encounter: Dictionary = {}
 	var first_threat: Threat
 	for encounter in _encounters:
@@ -449,7 +457,7 @@ func _surface_alert(time_seconds: float) -> void:
 			var seconds_until_approach := approach_time_seconds - time_seconds
 			if seconds_until_approach < 0.0:
 				continue
-			var is_late_warning := not has_working_radar and seconds_until_approach <= FALLBACK_WARNING_SECONDS
+			var is_late_warning := seconds_until_approach <= FALLBACK_WARNING_SECONDS
 			if not threat.is_revealed and not is_late_warning:
 				continue
 			if (first_threat == null or approach_time_seconds < first_threat.closest_approach_time_seconds
@@ -469,20 +477,6 @@ func _surface_alert(time_seconds: float) -> void:
 	if _overlay_enabled and is_inside_tree():
 		_open_overlay(first_threat)
 	_flight.raise_alert("THREAT_APPROACH", active_encounter["event_name"])
-
-
-func _has_working_selected_radar(vehicle: VehicleState) -> bool:
-	var selected_id := ""
-	var selected_tier := 0
-	for part_id: String in vehicle.design.payload_part_ids:
-		var part := GameData.part(part_id)
-		var stats: Dictionary = part.get("stats", {})
-		if part.get("category", "") == "telemetry" and stats.get("channel", "") == "radar":
-			var tier := int(part.get("tier", 0))
-			if selected_id.is_empty() or tier > selected_tier:
-				selected_tier = tier
-				selected_id = part_id
-	return vehicle.is_working_by_instrument.get(selected_id, false)
 
 
 func _open_overlay(threat: Threat) -> void:

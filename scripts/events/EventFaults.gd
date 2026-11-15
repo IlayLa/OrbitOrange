@@ -61,7 +61,8 @@ func apply_event(
 			return _result("Sensor failed", "%s stopped working." % sensor_name)
 		"solar_flare":
 			_flare_expires_at_seconds = maxf(_flare_expires_at_seconds, time_seconds + FLARE_DURATION_SECONDS)
-			return _result("Interference", "A solar flare disrupted telemetry for 120 simulated seconds.")
+			var range_loss_percent := 50.0 * _computer_protection_factor(vehicle)
+			return _result("Interference", "A solar flare disrupted telemetry for 120 simulated seconds. Radar acquisition range was reduced by %s%% with the computer protection available at onset." % NumberFormat.compact(range_loss_percent))
 	return _result("Skipped", "This event has no configured flight effect.")
 
 

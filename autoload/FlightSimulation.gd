@@ -16,10 +16,7 @@ const SIMULATION_STEP_SECONDS := 5.0
 const ALLOWED_TIME_SCALES: Array[float] = [0.0, 1.0, 10.0, 100.0, 1000.0]
 const PULSE_SLOWDOWN_LEAD_SECONDS := 2.0 * SIMULATION_STEP_SECONDS
 const LOW_FUEL_FRACTION := 0.1
-const AMBIENT_TEMPERATURE_KELVIN := 300.0
-const OVER_TEMPERATURE_KELVIN := 350.0
-const HEATING_KELVIN_PER_SECOND := 2.0
-const COOLING_KELVIN_PER_SECOND := 0.5
+const EARLY_FUEL_WARNING_FRACTION := 0.25
 const HAZARD_RANGE_METERS := 10000.0
 const TelemetryFeed = preload("res://scripts/flight/TelemetryFeed.gd")
 const DataLink = preload("res://scripts/flight/DataLink.gd")
@@ -62,7 +59,8 @@ var _pulse_initial_mass_kilograms: float = 0.0
 var _pulse_propellant_used_kilograms: float = 0.0
 var _pulse_start_time_seconds: float = 0.0
 var _pulse_attitude_radians: float = 0.0
-var _temperature_kelvin: float = AMBIENT_TEMPERATURE_KELVIN
+var _has_reported_early_fuel_warning: bool = false
+var _burn_diagnostic: Dictionary = {}
 var _mission_duration_seconds: float = 0.0
 var _next_step_time_seconds: float = SIMULATION_STEP_SECONDS
 var _seconds_not_yet_simulated: float = 0.0
@@ -105,7 +103,8 @@ func start_flight(design: RocketDesign, plan: MissionPlan, mission: Dictionary, 
 	_next_launch_stage_index = 0
 	_next_pulse_index = 0
 	_pulse_readout_ends_at_seconds = 0.0
-	_temperature_kelvin = AMBIENT_TEMPERATURE_KELVIN
+	_has_reported_early_fuel_warning = false
+	_burn_diagnostic = {}
 	_has_reached_stable_orbit = false
 	_launch_failure_explanation = ""
 	threats = []
@@ -178,6 +177,12 @@ func log_event(event_record: Dictionary) -> void:
 	event_log.append(event_record.duplicate(true))
 
 
+## Changes instrument reception for the next scheduled samples.
+func set_telemetry_interference(noise_fraction_addition: float, dropout_probability_addition: float) -> void:
+	if _telemetry_feed != null:
+		_telemetry_feed.set_interference(noise_fraction_addition, dropout_probability_addition)
+
+
 ## Pauses the flight and emits the message for the control room.
 func raise_alert(alarm_code: String, message: String) -> void:
 	if _is_finalizing_physical_end:
@@ -204,6 +209,8 @@ func end_flight(end_reason: FlightResult.EndReason) -> void:
 			"did_player_react": false,
 			"delta_v_spent_meters_per_second": 0.0,
 		})
+	else:
+		_record_final_altitude()
 	flight_ended.emit(_create_flight_result(end_reason))
 
 
@@ -280,11 +287,6 @@ func _process(real_seconds_since_last_frame: float) -> void:
 
 func _advance_to(time_seconds: float) -> void:
 	var interval_seconds := time_seconds - simulation_time_seconds
-	var heating_seconds := interval_seconds if _launch_stage != null else clampf(
-			_pulse_readout_ends_at_seconds - simulation_time_seconds, 0.0, interval_seconds)
-	_temperature_kelvin = maxf(AMBIENT_TEMPERATURE_KELVIN,
-			_temperature_kelvin + heating_seconds * HEATING_KELVIN_PER_SECOND
-			- (interval_seconds - heating_seconds) * COOLING_KELVIN_PER_SECOND)
 	if _coast_segment != null and interval_seconds > 0.0:
 		_collect_science(_state_on_coast(simulation_time_seconds + interval_seconds * 0.5), interval_seconds)
 		craft_state = _state_on_coast(time_seconds)
@@ -405,8 +407,14 @@ func _fire_due_planned_pulses() -> void:
 
 
 func _apply_pulse(pulse: Pulse) -> BurnOutcome:
-	if _plan.planning_mode == MissionPlan.PlanningMode.AUTOMATIC:
-		return _apply_automatic_pulse(pulse)
+	var before_state := craft_state
+	var outcome := _apply_automatic_pulse(pulse) if uses_automatic_staging() else _apply_legacy_pulse(pulse)
+	if outcome.did_fire:
+		_record_burn_shape(before_state)
+	return outcome
+
+
+func _apply_legacy_pulse(pulse: Pulse) -> BurnOutcome:
 	var requested_delta_v_meters_per_second := pulse.requested_delta_v_meters_per_second()
 	if requested_delta_v_meters_per_second <= 0.0:
 		return BurnOutcome.new()
@@ -561,9 +569,83 @@ func _sample_instruments() -> void:
 		TelemetryFrame.CHANNEL_FUEL_KILOGRAMS: _fuel_kilograms(),
 		TelemetryFrame.CHANNEL_ATTITUDE_RADIANS: attitude_radians,
 		TelemetryFrame.CHANNEL_FLIGHT_PATH_ANGLE_RADIANS: flight_path_angle_radians,
-		TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN: _temperature_kelvin,
 	}
-	_telemetry_feed.sample(values_by_channel, craft_state, vehicle_state, threats, _gravitational_parameter())
+	_telemetry_feed.sample(values_by_channel, craft_state, vehicle_state, threats,
+			_gravitational_parameter(), simulation_time_seconds)
+	_record_sample_diagnostics()
+
+
+func _record_sample_diagnostics() -> void:
+	if not _has_reported_early_fuel_warning:
+		var gauge := _telemetry_feed.valid_reading(TelemetryFrame.CHANNEL_FUEL_KILOGRAMS, vehicle_state)
+		if gauge != null and gauge.sample_time_seconds == simulation_time_seconds:
+			var capacity_kilograms := _attached_propellant_capacity_kilograms()
+			if _has_early_fuel_warning(gauge, capacity_kilograms) and _fuel_kilograms() > capacity_kilograms * LOW_FUEL_FRACTION:
+				_has_reported_early_fuel_warning = true
+				_log_diagnostic("fuel_warning", "The fuel gauge warned early at %.1f kg of %.1f kg attached capacity. The standard warning begins at 10%%." % [
+						gauge.value, capacity_kilograms])
+	if _burn_diagnostic.is_empty():
+		return
+	if simulation_time_seconds >= _pulse_readout_ends_at_seconds:
+		_burn_diagnostic = {}
+		return
+	var attitude := _telemetry_feed.valid_reading(TelemetryFrame.CHANNEL_ATTITUDE_RADIANS, vehicle_state)
+	if attitude != null and attitude.sample_time_seconds == simulation_time_seconds:
+		_burn_diagnostic["explanation"] += " The attitude sensor measured %+.1f° from local horizontal during the burn." % rad_to_deg(attitude.value)
+		_burn_diagnostic = {}
+
+
+func _has_early_fuel_warning(gauge: TelemetryReading, capacity_kilograms: float) -> bool:
+	return gauge.is_sensor_working and capacity_kilograms > 0.0 and gauge.value <= capacity_kilograms * EARLY_FUEL_WARNING_FRACTION
+
+
+func _record_burn_shape(before_state: OrbitState) -> void:
+	_burn_diagnostic = {}
+	var target: Dictionary = _automatic_mission.get("target", {})
+	if not target.has("eccentricity") or not target.has("eccentricity_tolerance"):
+		return
+	var desired: float = target["eccentricity"]
+	var tolerance: float = target["eccentricity_tolerance"]
+	var before := Kepler.elements_from_state(_gravitational_parameter(), before_state)
+	var after := Kepler.elements_from_state(_gravitational_parameter(), craft_state)
+	if absf(before.eccentricity - desired) <= tolerance and absf(after.eccentricity - desired) > tolerance:
+		_log_diagnostic("burn_diagnostic", "This burn changed eccentricity from %.3f to %.3f. The target was %.3f ± %.3f." % [
+				before.eccentricity, after.eccentricity, desired, tolerance])
+		_burn_diagnostic = event_log.back()
+
+
+func _record_final_altitude() -> void:
+	if _next_pulse_index < _plan.pulses.size():
+		return
+	var elements := _final_elements()
+	if not _is_stable_orbit(elements):
+		return
+	var target: Dictionary = _automatic_mission.get("target", {})
+	if not target.has("altitude_kilometers") or not target.has("altitude_tolerance_kilometers"):
+		return
+	var reading := _telemetry_feed.valid_reading(TelemetryFrame.CHANNEL_ALTITUDE_METERS, vehicle_state)
+	if reading == null or reading.sample_time_seconds < _coast_segment.start_time_seconds:
+		return
+	var altitude_kilometers := reading.value / 1000.0
+	var desired: float = target["altitude_kilometers"]
+	var tolerance: float = target["altitude_tolerance_kilometers"]
+	var mean_altitude_kilometers := (elements.semi_major_axis_meters - float(_body["radius_meters"])) / 1000.0
+	var error_kilometers := altitude_kilometers - desired
+	var mean_error_kilometers := mean_altitude_kilometers - desired
+	if absf(error_kilometers) > tolerance and absf(mean_error_kilometers) > tolerance and signf(error_kilometers) == signf(mean_error_kilometers):
+		_log_diagnostic("altitude_diagnostic", "After the planned burns, the altimeter read %.1f km. The target band was %.1f to %.1f km." % [
+				altitude_kilometers, desired - tolerance, desired + tolerance])
+
+
+func _log_diagnostic(event_type_id: String, explanation: String) -> void:
+	log_event({
+		"time_seconds": simulation_time_seconds,
+		"event_type_id": event_type_id,
+		"outcome": "Warning",
+		"explanation": explanation,
+		"did_player_react": false,
+		"delta_v_spent_meters_per_second": 0.0,
+	})
 
 
 func _create_telemetry_frame() -> TelemetryFrame:
@@ -581,10 +663,9 @@ func _create_telemetry_frame() -> TelemetryFrame:
 	acceleration.value = _acceleration_meters_per_second_squared()
 	frame.readings_by_channel[TelemetryFrame.CHANNEL_ACCELERATION_METERS_PER_SECOND_SQUARED] = acceleration
 	var attached_capacity_kilograms := _attached_propellant_capacity_kilograms()
-	if attached_capacity_kilograms > 0.0 and _fuel_kilograms() <= attached_capacity_kilograms * LOW_FUEL_FRACTION:
+	var critical_fuel := attached_capacity_kilograms > 0.0 and _fuel_kilograms() <= attached_capacity_kilograms * LOW_FUEL_FRACTION
+	if critical_fuel or _has_early_fuel_warning(frame.reading(TelemetryFrame.CHANNEL_FUEL_KILOGRAMS), attached_capacity_kilograms):
 		frame.active_alarms.append("LOW_FUEL")
-	if _temperature_kelvin >= OVER_TEMPERATURE_KELVIN:
-		frame.active_alarms.append("OVER_TEMPERATURE")
 	if TelemetryFeed.nearest_threat_range_meters(craft_state, threats, _gravitational_parameter()) <= HAZARD_RANGE_METERS:
 		frame.active_alarms.append("HAZARD_NEAR")
 	return frame
@@ -714,6 +795,8 @@ func _fire_automatic_insertion() -> void:
 	_automatic_insertion_pending = false
 	_automatic_insertion_time_seconds = INF
 	_record_allocation_readout(allocation, before_state, "Automatic orbit insertion")
+	if allocation.outcome.did_fire:
+		_record_burn_shape(before_state)
 	_rebuild_trajectory()
 	if not _has_reached_stable_orbit:
 		_launch_failure_explanation = (

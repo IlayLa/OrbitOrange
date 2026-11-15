@@ -7,6 +7,7 @@ const ThreatGeometry = preload("res://scripts/events/ThreatModel.gd")
 const Maneuver = preload("res://scripts/events/EmergencyManeuver.gd")
 const REFERENCE_MISSION_ID := "low_earth_orbit_placeholder"
 const RADAR_BASIC := "telemetry_radar_basic"
+const RADAR_STANDARD := "telemetry_radar_standard"
 const RADAR_ADVANCED := "telemetry_radar_advanced"
 const ALTIMETER := "telemetry_altimeter_basic"
 const CAMERA := "science_camera_basic"
@@ -27,8 +28,10 @@ func run_tests(report: TestReport) -> void:
 	_check_rate_samples(report)
 	_check_geometry(report)
 	_check_radar_and_queue(report)
+	_check_warning_tradeoffs(report)
 	_check_emergency_burn(report)
 	_check_elapsed_collision_and_damage(report)
+	_check_cumulative_hull_damage(report)
 	_check_collision_before_planned_burn(report)
 	_check_terminal_precedence(report)
 	_check_real_warp_replay(report)
@@ -126,9 +129,10 @@ func _check_geometry(report: TestReport) -> void:
 	if not generated.is_empty() and not repeated.is_empty():
 		var generated_threat: Threat = generated["threat"]
 		var repeated_threat: Threat = repeated["threat"]
-		report.check(generated["target_time_seconds"] >= 180.0 and generated["target_time_seconds"] <= 300.0
+		report.check(generated["target_time_seconds"] >= ThreatGeometry.TARGET_LEAD_MIN_SECONDS
+				and generated["target_time_seconds"] < 600.0
 				and generated_threat.miss_distance_meters <= 300.0,
-				"random threats pass within three collision radii after a 180–300 second lead")
+				"random threats pass within three collision radii before the mission deadline")
 		report.check(generated["target_time_seconds"] == repeated["target_time_seconds"]
 				and generated_threat.state.velocity_x_meters_per_second == repeated_threat.state.velocity_x_meters_per_second
 				and generated_threat.miss_distance_meters == repeated_threat.miss_distance_meters,
@@ -196,6 +200,53 @@ func _check_radar_and_queue(report: TestReport) -> void:
 			"within ten seconds the late warning still works when the highest-tier radar failed")
 	director.acknowledge_alert()
 	_free_fixture(fixture)
+
+	fixture = _orbital_flight([RADAR_STANDARD])
+	flight = fixture["flight"]
+	director = fixture["director"]
+	flight.set_telemetry_interference(0.0, 1.0)
+	now_seconds = flight.simulation_time_seconds
+	var missed_contact := _crossing_threat(body, flight.trajectory, now_seconds, now_seconds + 17.5, 175.0, 100.0, CONJUNCTION)
+	director.force_encounter(CONJUNCTION, [missed_contact], now_seconds + 17.5)
+	flight.advance_simulation(10.0)
+	report.check(not missed_contact.is_revealed and flight.event_log[0]["explanation"].contains("fallback warning"),
+			"an installed radar that never acquired the threat still gets a last-moment warning")
+	_free_fixture(fixture)
+
+
+func _check_warning_tradeoffs(report: TestReport) -> void:
+	var basic := _warning_lead_seconds([RADAR_BASIC], 650.0)
+	var standard := _warning_lead_seconds([RADAR_STANDARD], 650.0)
+	var advanced := _warning_lead_seconds([RADAR_ADVANCED], 650.0)
+	report.check(basic > 10.0 and basic < standard and standard < advanced and advanced > 300.0,
+			"each radar tier gives more warning on the same long approach (%s, %s, %s s)" % [basic, standard, advanced])
+	var unprotected := _warning_lead_seconds([RADAR_STANDARD], 200.0, true)
+	var protected := _warning_lead_seconds([RADAR_STANDARD, COMPUTER_BASIC], 200.0, true)
+	var hardened := _warning_lead_seconds([RADAR_STANDARD, COMPUTER_HARDENED], 200.0, true)
+	report.check(unprotected > 10.0 and unprotected < protected and protected < hardened,
+			"working computers preserve earlier warning in a live flare (%s, %s, %s s)" % [unprotected, protected, hardened])
+
+
+func _warning_lead_seconds(payload: Array[String], lead_seconds: float, flare := false) -> float:
+	var fixture := _orbital_flight(payload)
+	var flight: Flight = fixture["flight"]
+	var director: Director = fixture["director"]
+	var body: Dictionary = GameData.body("earth")
+	var now_seconds := flight.simulation_time_seconds
+	flight.craft_state = _circular_state(body)
+	flight.craft_state.time_seconds = now_seconds
+	flight._rebuild_trajectory()
+	var target_seconds := now_seconds + lead_seconds
+	var threat := _crossing_threat(body, flight.trajectory, now_seconds, target_seconds, 0.0, 100.0, CONJUNCTION, -1000.0)
+	if flare:
+		director.force_event(FLARE)
+	director.force_encounter(CONJUNCTION, [threat], target_seconds)
+	flight.advance_simulation(lead_seconds)
+	var warning_seconds := 0.0
+	if not director.active_encounter.is_empty():
+		warning_seconds = target_seconds - flight.simulation_time_seconds
+	_free_fixture(fixture)
+	return warning_seconds
 
 
 func _check_emergency_burn(report: TestReport) -> void:
@@ -302,6 +353,43 @@ func _check_elapsed_collision_and_damage(report: TestReport) -> void:
 			and flight.event_log.size() == 1 and flight.event_log[0]["outcome"] == "Damage"
 			and flight.threats.is_empty(), "one colliding debris fragment removes exactly one instrument and aggregates the row")
 	_free_fixture(fixture)
+
+
+func _check_cumulative_hull_damage(report: TestReport) -> void:
+	var fixture := _orbital_flight([])
+	var flight: Flight = fixture["flight"]
+	var director: Director = fixture["director"]
+	var body: Dictionary = GameData.body("earth")
+	var design := flight.vehicle_state.design.duplicate_design()
+	design.payload_part_ids.clear()
+	var plan := flight._plan.duplicate_plan()
+	var mission := flight._automatic_mission.duplicate(true)
+	flight.start_flight(design, plan, mission, 32855)
+	flight.advance_simulation(1100.0)
+	var results: Array[FlightResult] = []
+	flight.flight_ended.connect(func(result: FlightResult) -> void: results.append(result))
+	for hit_count in 3:
+		_strike_with_debris(flight, director, body)
+		report.check(flight.is_flying == (hit_count < 2), "hull sustains debris hit %d with an empty payload" % (hit_count + 1))
+	report.check(results.size() == 1 and results[0].end_reason == FlightResult.EndReason.COLLISION
+			and results[0].installed_instrument_count == 0
+			and results[0].event_log.back()["explanation"].contains("destroyed the hull"),
+			"the third confirmed impact ends the flight once and explains hull destruction")
+	flight.start_flight(design, plan, mission, 32855)
+	flight.advance_simulation(1100.0)
+	_strike_with_debris(flight, director, body)
+	report.check(flight.is_flying and results.size() == 1, "a fresh launch starts with a fresh hull")
+	_free_fixture(fixture)
+
+
+func _strike_with_debris(flight: Flight, director: Director, body: Dictionary) -> void:
+	var now_seconds := flight.simulation_time_seconds
+	var target_seconds := now_seconds + 17.5
+	var fragment := _crossing_threat(body, flight.trajectory, now_seconds, target_seconds, 0.0, 25.0, DEBRIS)
+	director.force_encounter(DEBRIS, [fragment], target_seconds)
+	flight.advance_simulation(10.0)
+	director.acknowledge_alert()
+	flight.advance_simulation(15.0)
 
 
 func _check_collision_before_planned_burn(report: TestReport) -> void:
@@ -521,16 +609,16 @@ func _circular_state(body: Dictionary) -> OrbitState:
 
 func _crossing_threat(
 		body: Dictionary, trajectory: Trajectory, spawn_time_seconds: float, target_seconds: float,
-		offset_meters: float, radius_meters: float, event_type_id: String) -> Threat:
+		offset_meters: float, radius_meters: float, event_type_id: String,
+		outward_speed_meters_per_second := 1000.0) -> Threat:
 	var craft := OrbitModel.state_at_time(body, trajectory, target_seconds)
 	var outward_x := craft.position_x_meters / craft.radius_meters()
 	var outward_y := craft.position_y_meters / craft.radius_meters()
-	const RELATIVE_SPEED_METERS_PER_SECOND := 1000.0
 	var crossing := OrbitState.create(
 			craft.position_x_meters - offset_meters * outward_y,
 			craft.position_y_meters + offset_meters * outward_x,
-			craft.velocity_x_meters_per_second + RELATIVE_SPEED_METERS_PER_SECOND * outward_x,
-			craft.velocity_y_meters_per_second + RELATIVE_SPEED_METERS_PER_SECOND * outward_y,
+			craft.velocity_x_meters_per_second + outward_speed_meters_per_second * outward_x,
+			craft.velocity_y_meters_per_second + outward_speed_meters_per_second * outward_y,
 			target_seconds)
 	var threat := Threat.new()
 	threat.event_type_id = event_type_id

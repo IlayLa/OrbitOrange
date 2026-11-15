@@ -11,6 +11,8 @@ const TEST_CAMERA_ID := "flight_test_camera"
 const TEST_UNFIT_CAMERA_ID := "flight_test_unfit_camera"
 const TEST_SMALL_TANK_ID := "flight_test_small_tank"
 const TEST_DROPOUT_ID := "flight_test_dropout"
+const FUEL_GAUGE_ID := "telemetry_fuel_gauge"
+const ATTITUDE_SENSOR_ID := "telemetry_attitude_star_tracker"
 
 
 func run_tests(report: TestReport) -> void:
@@ -24,6 +26,8 @@ func run_tests(report: TestReport) -> void:
 	_check_terminal_reasons(report)
 	_check_terminal_tick_precedence(report)
 	_check_low_fuel_alarm(report)
+	_check_early_fuel_warning(report)
+	_check_sensor_diagnostics(report)
 	_check_science_fit(report)
 	_check_shared_orbit_radii(report)
 	GameState.mission = selected_mission
@@ -233,6 +237,72 @@ func _check_low_fuel_alarm(report: TestReport) -> void:
 	report.check(_has_low_fuel_alarm(flight), "low-fuel alarm at 10 percent of the attached capacity")
 	flight.vehicle_state.is_jettisoned_by_stage[upper_stage.stage_id] = true
 	report.check(not _has_low_fuel_alarm(flight), "no low-fuel alarm when no stage is attached")
+	flight.free()
+
+
+func _check_early_fuel_warning(report: TestReport) -> void:
+	var reserves: Array[float] = []
+	for gauge_state in ["working", "failed", "missing"]:
+		var design := RocketDesign.new()
+		var stage := design.add_stage(TEST_LIQUID_ENGINE_ID, TEST_SMALL_TANK_ID)
+		if gauge_state != "missing":
+			design.payload_part_ids.append(FUEL_GAUGE_ID)
+		var flight := _start_flight_with_design(design, 200.0)
+		if gauge_state == "failed":
+			flight.vehicle_state.is_working_by_instrument[FUEL_GAUGE_ID] = false
+		flight.vehicle_state.propellant_kilograms_by_stage[stage.stage_id] = 20.0
+		flight.set_time_scale(1000.0)
+		flight.advance_simulation(5.0)
+		report.check(_has_low_fuel_alarm(flight) == (gauge_state == "working") and flight.time_scale == 1000.0,
+				"the %s gauge produces the expected passive warning at 20 percent fuel" % gauge_state)
+		flight.advance_simulation(5.0)
+		var expected_rows := 1 if gauge_state == "working" else 0
+		report.check(flight.event_log.size() == expected_rows, "the %s gauge records at most one early warning" % gauge_state)
+		if expected_rows == 1 and not flight.event_log.is_empty():
+			report.check(flight.event_log[0]["event_type_id"] == "fuel_warning", "the report explains the early fuel warning")
+		reserves.append(flight._create_telemetry_frame().delta_v_remaining_meters_per_second)
+		var pulse := Pulse.new()
+		pulse.stage_id = stage.stage_id
+		pulse.delta_v_along_velocity_meters_per_second = 20.0
+		var outcome := flight.apply_emergency_pulse(pulse)
+		report.check_close(outcome.delta_v_delivered_meters_per_second, 20.0, 1.0e-6,
+				"the %s gauge has no effect on the burn delivery" % gauge_state)
+		flight.free()
+	report.check_close(reserves[0], reserves[1], 0.0, "a working or failed gauge on the same rocket reports the same reserve")
+
+
+func _check_sensor_diagnostics(report: TestReport) -> void:
+	var flight := _start_flight([TEST_ALTIMETER_ID, ATTITUDE_SENSOR_ID])
+	flight._automatic_mission["target"] = {
+		"altitude_kilometers": 250.0, "altitude_tolerance_kilometers": 25.0,
+		"eccentricity": 0.0, "eccentricity_tolerance": 0.02,
+	}
+	flight.advance_simulation(1.0)
+	var initial_attitude := flight._create_telemetry_frame().reading(TelemetryFrame.CHANNEL_ATTITUDE_RADIANS)
+	report.check(initial_attitude.is_sensor_working and absf(initial_attitude.value) > 1.0e-8
+			and absf(initial_attitude.value) <= PI / 2.0 * 0.001 + 1.0e-8,
+			"a near-horizontal attitude sample has nonzero bounded angular noise")
+	var pulse := Pulse.new()
+	pulse.stage_id = flight.vehicle_state.design.stages[0].stage_id
+	pulse.delta_v_along_velocity_meters_per_second = 500.0
+	flight.apply_emergency_pulse(pulse)
+	flight.advance_simulation(5.0)
+	var frame := flight._create_telemetry_frame()
+	report.check(not frame.reading(TelemetryFrame.CHANNEL_TEMPERATURE_KELVIN).is_sensor_installed
+			and not frame.active_alarms.has("OVER_TEMPERATURE")
+			and GameData.part("telemetry_temperature_sensor").is_empty(),
+			"the temperature part, its live samples and the thermal alarm are gone")
+	var results: Array[FlightResult] = []
+	flight.flight_ended.connect(func(result: FlightResult) -> void: results.append(result))
+	flight.advance_simulation(200.0)
+	report.check(results.size() == 1 and results[0].end_reason == FlightResult.EndReason.MISSION_COMPLETED,
+			"the usual mission timer still concludes a flight with diagnostics")
+	if results.size() == 1:
+		var rows := results[0].event_log
+		report.check(rows.size() == 2 and rows[0]["event_type_id"] == "burn_diagnostic"
+				and rows[0]["explanation"].contains("attitude sensor measured")
+				and rows[1]["event_type_id"] == "altitude_diagnostic",
+				"the report connects a burn to the eccentricity change and includes the final altimeter evidence")
 	flight.free()
 
 
