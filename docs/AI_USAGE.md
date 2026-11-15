@@ -8,6 +8,7 @@ To keep that record complete without several agents editing one file, **each tas
 |---|---|
 | `ai_usage/T00.md` | The design review, the plan, the shared skeleton, the contracts and the task files |
 | `ai_usage/T01.md` … `T08.md` | One per task, written by the agent that does the task |
+| `ai_usage/review-2026-11-15.md` | The code and design review of 15 November (the review itself is in `docs/review/`) |
 
 ## What each file records
 For every working session:
