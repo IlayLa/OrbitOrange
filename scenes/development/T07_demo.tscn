@@ -1,0 +1,78 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/events/T07Demo.gd" id="1_demo"]
+[ext_resource type="Script" path="res://scripts/orbit/OrbitView.gd" id="2_map"]
+
+[node name="T07Demo" type="Control"]
+layout_mode = 3
+offset_right = 640.0
+offset_bottom = 400.0
+script = ExtResource("1_demo")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 0
+offset_right = 640.0
+offset_bottom = 400.0
+mouse_filter = 2
+color = Color(0.047, 0.071, 0.104, 1)
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 12.0
+offset_right = 460.0
+offset_bottom = 44.0
+theme_override_font_sizes/font_size = 22
+text = "Conjunction exercise"
+
+[node name="OrbitMap" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 18.0
+offset_top = 58.0
+offset_right = 410.0
+offset_bottom = 382.0
+mouse_filter = 2
+clip_contents = true
+script = ExtResource("2_map")
+
+[node name="Readout" type="VBoxContainer" parent="."]
+layout_mode = 0
+offset_left = 428.0
+offset_top = 57.0
+offset_right = 622.0
+offset_bottom = 364.0
+theme_override_constants/separation = 12
+
+[node name="Status" type="Label" parent="Readout"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+autowrap_mode = 2
+
+[node name="Clock" type="Label" parent="Readout"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+
+[node name="Reserve" type="Label" parent="Readout"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+autowrap_mode = 2
+
+[node name="Outcome" type="Label" parent="Readout"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.52, 0.91, 0.80, 1)
+theme_override_font_sizes/font_size = 20
+
+[node name="FastForward" type="Button" parent="Readout"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Fast forward (100×)"
+
+[node name="Restart" type="Button" parent="Readout"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Restart exercise"
