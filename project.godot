@@ -29,13 +29,16 @@ window/size/viewport_height=400
 window/size/window_width_override=1280
 window/size/window_height_override=800
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
 window/stretch/scale_mode="integer"
 
 [gui]
 
 theme/custom="res://assets/ui/ui_theme.tres"
 theme/custom_font="res://assets/ui/pixel_font.tres"
+
+[internationalization]
+
+rendering/root_node_layout_direction=1
 
 [physics]
 
@@ -44,6 +47,6 @@ theme/custom_font="res://assets/ui/pixel_font.tres"
 [rendering]
 
 textures/canvas_textures/default_texture_filter=0
+rendering_device/driver.windows="d3d12"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-rendering_device/driver.windows="d3d12"
