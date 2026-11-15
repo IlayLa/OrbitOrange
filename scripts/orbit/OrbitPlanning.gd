@@ -5,7 +5,7 @@ var _orbit_view: OrbitView
 var _overlay: Control
 var _readouts: Label
 var _hint: Label
-var _launch_value: Label
+var _launch_number: SpinBox
 var _launch_slider: HSlider
 var _magnitude_number: SpinBox
 var _direction_number: SpinBox
@@ -26,14 +26,11 @@ var _drag_start_pixels := Vector2.ZERO
 var _is_aiming_placement: bool = false
 ## Pulse added by the current "place" drag; Escape removes it.
 var _placed_pulse_id: int = 0
+## The pulse part under the cursor, as _pick_pulse returns it.
+var _hovered_pulse_part: Dictionary = {}
 
-## A press that moves less than this is a click: the pulse keeps its default burn.
-const PLACEMENT_DRAG_THRESHOLD_PIXELS := 6.0
 ## The burn a click (without a pull) gives a new pulse.
 const DEFAULT_PULSE_DELTA_V_METERS_PER_SECOND := 100.0
-## Same convention and wording as the emergency maneuver's angle field.
-const DIRECTION_HELP_TEXT := "Burn direction. 0° along motion · +90° outward"
-const COLOR_PULL_LINE := Color(0.9, 0.9, 1.0, 0.75)
 
 
 func _ready() -> void:
@@ -72,8 +69,7 @@ func _ready() -> void:
 	_magnitude_number.allow_greater = true
 	_magnitude_number.tooltip_text = "Requested change in velocity"
 	_direction_number = _number_field(Vector2(302, 51), Vector2(82, 22), "°", -180.0, 180.0, 0.1, _on_direction_angle_changed)
-	_direction_number.custom_arrow_step = 1.0
-	_direction_number.tooltip_text = DIRECTION_HELP_TEXT
+	_direction_number.tooltip_text = PulseGeometry.DIRECTION_HELP_TEXT
 	_delete_button = Button.new()
 	_delete_button.theme = theme
 	_delete_button.text = "Delete"
@@ -101,14 +97,16 @@ func _ready() -> void:
 	var launch_label: Label = _label(Vector2(44, 376), Vector2(96, 20), 10)
 	launch_label.text = "Launch angle"
 	_launch_slider = HSlider.new()
-	_launch_slider.position = Vector2(146, 378)
-	_launch_slider.size = Vector2(270, 18)
+	_launch_slider.theme = theme
+	_launch_slider.position = Vector2(146, 377)
+	_launch_slider.size = Vector2(262, 18)
 	_launch_slider.min_value = 0.0
 	_launch_slider.max_value = 89.0
 	_launch_slider.step = 0.1
 	_launch_slider.value_changed.connect(_on_launch_angle_changed)
 	add_child(_launch_slider)
-	_launch_value = _label(Vector2(423, 376), Vector2(80, 20), 10)
+	_launch_number = _number_field(Vector2(416, 375), Vector2(84, 22), "°", 0.0, 89.0, 0.1, _on_launch_angle_changed)
+	_launch_number.tooltip_text = "Launch angle above the horizon. 0° flat · 89° straight up"
 	GameState.launch_requested.connect(_refresh)
 	GameState.derived_changed.connect(_refresh)
 	GameState.mission_changed.connect(_refresh)
@@ -138,9 +136,7 @@ func _number_field(position_pixels: Vector2, size_pixels: Vector2, suffix: Strin
 	field.min_value = minimum_value
 	field.max_value = maximum_value
 	field.step = step
-	field.select_all_on_focus = true
-	field.add_theme_font_size_override("font_size", 10)
-	field.get_line_edit().add_theme_font_size_override("font_size", 10)
+	PlanningStyle.style_number_field(field, 10)
 	field.value_changed.connect(on_changed)
 	add_child(field)
 	return field
@@ -162,7 +158,12 @@ func _input(event: InputEvent) -> void:
 			_update_drag(_overlay.get_local_mouse_position())
 			get_viewport().set_input_as_handled()
 		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			var was_placing: bool = _drag_mode == "place"
 			_end_drag()
+			if was_placing:
+				# A finished placement leaves nothing selected; click the pulse to edit it.
+				_selected_pulse_id = 0
+				_refresh()
 			_update_ghosts()
 			_overlay.queue_redraw()
 			get_viewport().set_input_as_handled()
@@ -180,6 +181,8 @@ func _on_view_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseMotion:
 		_overlay.tooltip_text = _tooltip_at(event.position)
+		_hovered_pulse_part = _pick_pulse(event.position)
+		_overlay.mouse_default_cursor_shape = Control.CURSOR_CROSS if _hovered_pulse_part.is_empty() else Control.CURSOR_POINTING_HAND
 		var hovered: Dictionary = _orbit_view.pick_path(event.position, 14.0)
 		_has_hover_point = not hovered.is_empty() and (GameState.summary != null and GameState.summary.ascent != null and GameState.summary.ascent.did_reach_initial_orbit)
 		if _has_hover_point:
@@ -258,14 +261,14 @@ func _update_drag(position_pixels: Vector2) -> void:
 		_pending_plan_change = true
 		return
 	if _drag_mode == "place" and not _is_aiming_placement:
-		if position_pixels.distance_to(_drag_start_pixels) <= PLACEMENT_DRAG_THRESHOLD_PIXELS:
+		if position_pixels.distance_to(_drag_start_pixels) <= PulseGeometry.SLINGSHOT_THRESHOLD_PIXELS:
 			return
 		_is_aiming_placement = true
 	var allocation: BurnAllocation = _allocation_for(pulse.pulse_id)
 	if allocation == null or allocation.before_state == null:
 		return
 	var anchor_pixels: Vector2 = _pulse_position(pulse, allocation)
-	var direction_pixels: Vector2 = anchor_pixels - position_pixels if _drag_mode == "place" else position_pixels - anchor_pixels
+	var direction_pixels: Vector2 = PulseGeometry.dragged_direction(anchor_pixels, position_pixels, _drag_mode == "place")
 	if direction_pixels.length() < 1.0:
 		return
 	_aim_pulse(pulse, allocation, direction_pixels)
@@ -301,7 +304,8 @@ func _on_launch_angle_changed(angle_degrees: float) -> void:
 	if not _can_edit():
 		return
 	GameState.plan.launch_angle_radians = deg_to_rad(angle_degrees)
-	_launch_value.text = "%.1f°" % angle_degrees
+	_launch_slider.set_value_no_signal(angle_degrees)
+	_launch_number.set_value_no_signal(angle_degrees)
 	_pending_plan_change = true
 
 
@@ -374,7 +378,7 @@ func _refresh() -> void:
 	_orbit_view.configure(_body, GameState.mission)
 	_orbit_view.show_trajectory(GameState.trajectory)
 	_launch_slider.set_value_no_signal(rad_to_deg(GameState.plan.launch_angle_radians))
-	_launch_value.text = "%.1f°" % rad_to_deg(GameState.plan.launch_angle_radians)
+	_launch_number.set_value_no_signal(rad_to_deg(GameState.plan.launch_angle_radians))
 	var pulse: Pulse = _selected_pulse()
 	var allocation: BurnAllocation = _allocation_for(_selected_pulse_id)
 	var can_set_magnitude: bool = pulse != null and allocation != null and not allocation.starts_with_solid
@@ -385,6 +389,7 @@ func _refresh() -> void:
 	_inspector_label.text = "Select a pulse to edit" if pulse == null else ("Solid motor · full burn" if allocation != null and allocation.starts_with_solid else "Requested change in velocity")
 	_add_button.disabled = GameState.has_launched or GameState.summary == null or GameState.summary.ascent == null or not GameState.summary.ascent.did_reach_initial_orbit
 	_launch_slider.editable = not GameState.has_launched
+	_launch_number.editable = not GameState.has_launched
 	_magnitude_number.editable = not GameState.has_launched
 	_direction_number.editable = not GameState.has_launched
 	if GameState.has_launched:
@@ -512,17 +517,17 @@ func _arrow_end(pulse: Pulse, allocation: BurnAllocation) -> Vector2:
 func _pick_pulse(position_pixels: Vector2) -> Dictionary:
 	for pulse in GameState.plan.pulses:
 		var allocation: BurnAllocation = _allocation_for(pulse.pulse_id)
-		if position_pixels.distance_to(_arrow_end(pulse, allocation)) <= 8.0:
-			return {"pulse": pulse, "part": "arrow"}
-		if position_pixels.distance_to(_pulse_position(pulse, allocation)) <= 9.0:
-			return {"pulse": pulse, "part": "anchor"}
+		var part: String = PulseGeometry.pick_part(position_pixels, _pulse_position(pulse, allocation), _arrow_end(pulse, allocation))
+		if part != "":
+			return {"pulse": pulse, "part": part}
 	return {}
 
 
 func _draw_overlay() -> void:
 	var font: Font = ThemeDB.fallback_font
-	if _has_hover_point:
-		_overlay.draw_arc(_hover_point_pixels, 6.0, 0.0, TAU, 24, Color("#8be7e6"), 1.0, true)
+	# Over a pulse a press selects it, so the "add here" ring is hidden.
+	if _has_hover_point and _hovered_pulse_part.is_empty() and _drag_mode == "":
+		_overlay.draw_arc(_hover_point_pixels, 6.0, 0.0, TAU, 24, PulseGeometry.COLOR_HOVER, 1.0, true)
 	for pulse_index in GameState.plan.pulses.size():
 		var pulse: Pulse = GameState.plan.pulses[pulse_index]
 		var allocation: BurnAllocation = _allocation_for(pulse.pulse_id)
@@ -531,44 +536,37 @@ func _draw_overlay() -> void:
 		var color: Color = OrbitView.stage_color(allocation.last_stage_id()) if allocation != null else Color.WHITE
 		if allocation == null or allocation.before_state == null or not allocation.is_satisfied:
 			color = ScreenLayout.COLOR_WARNING_RED
-		_overlay.draw_line(anchor_pixels, end_pixels, color, 2.0, true)
-		var arrow_direction: Vector2 = (end_pixels - anchor_pixels).normalized()
-		_overlay.draw_line(end_pixels, end_pixels - arrow_direction.rotated(0.5) * 6.0, color, 2.0, true)
-		_overlay.draw_line(end_pixels, end_pixels - arrow_direction.rotated(-0.5) * 6.0, color, 2.0, true)
-		_overlay.draw_circle(anchor_pixels, 4.0, color)
-		if pulse.pulse_id == _selected_pulse_id:
-			_overlay.draw_arc(anchor_pixels, 8.0, 0.0, TAU, 24, Color.WHITE, 1.5, true)
+		var is_selected: bool = pulse.pulse_id == _selected_pulse_id
+		PulseGeometry.draw_arrow(_overlay, anchor_pixels, end_pixels, color, is_selected)
+		if not is_selected and _hovered_pulse_part.get("pulse") == pulse and _drag_mode == "":
+			PulseGeometry.draw_hover_ring(_overlay, end_pixels if _hovered_pulse_part["part"] == "arrow" else anchor_pixels)
 		var chain: String = allocation.stage_chain(GameState.design) if allocation != null else ""
-		_overlay.draw_string(font, anchor_pixels + Vector2(7, -8), "%d · %s" % [pulse_index + 1, chain if chain != "" else "UNREACHED"],
-				HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, color)
+		var caption: String = "%d · %s" % [pulse_index + 1, chain if chain != "" else "UNREACHED"]
+		var caption_baseline: Vector2 = anchor_pixels + Vector2(7, -8)
+		if is_selected:
+			# The selected pulse's label sits on a white plate, like a highlighted entry.
+			var caption_size: Vector2 = font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10)
+			var caption_ascent: float = font.get_ascent(10)
+			_overlay.draw_rect(Rect2(caption_baseline - Vector2(2, caption_ascent + 1), caption_size + Vector2(4, 2)), Color.WHITE)
+			_overlay.draw_string(font, caption_baseline, caption, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, PulseGeometry.COLOR_SELECTED_CAPTION)
+		else:
+			_overlay.draw_string(font, caption_baseline, caption, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, color)
 	if GameState.summary != null and GameState.summary.ascent != null:
 		var ascent: AscentResult = GameState.summary.ascent
 		_draw_ascent_marker(ascent.departure_state, ascent.departure, "DEPART", font, Vector2(7, 13))
 		_draw_ascent_marker(ascent.insertion.before_state, ascent.insertion, "INSERT", font, Vector2(-85, 21))
-	_draw_aim_feedback(font)
+	_draw_aim_feedback()
 
 
-## While aiming: the slingshot's pull line, and the burn in numbers by the cursor.
-func _draw_aim_feedback(font: Font) -> void:
+func _draw_aim_feedback() -> void:
 	var is_aiming: bool = _drag_mode == "arrow" or (_drag_mode == "place" and _is_aiming_placement)
 	var pulse: Pulse = _selected_pulse()
 	if not is_aiming or pulse == null:
 		return
 	var allocation: BurnAllocation = _allocation_for(pulse.pulse_id)
-	var cursor_pixels: Vector2 = _overlay.get_local_mouse_position()
-	if _drag_mode == "place":
-		_overlay.draw_dashed_line(_pulse_position(pulse, allocation), cursor_pixels, COLOR_PULL_LINE, 1.0, 2.0)
-	var caption: String = "%.0f°" % pulse.direction_angle_degrees()
-	if allocation == null or not allocation.starts_with_solid:
-		caption = "%.0f m/s · %s" % [pulse.requested_delta_v_meters_per_second(), caption]
-	var font_size_pixels := 10
-	var text_size: Vector2 = font.get_string_size(caption, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size_pixels)
-	var baseline_pixels: Vector2 = cursor_pixels + Vector2(10, -8)
-	baseline_pixels.x = minf(baseline_pixels.x, _overlay.size.x - text_size.x - 3.0)
-	baseline_pixels.y = maxf(baseline_pixels.y, font.get_ascent(font_size_pixels) + 2.0)
-	var ascent_pixels: float = font.get_ascent(font_size_pixels)
-	_overlay.draw_rect(Rect2(baseline_pixels - Vector2(2, ascent_pixels + 1), text_size + Vector2(4, 2)), OrbitView.COLOR_LABEL_PLATE)
-	_overlay.draw_string(font, baseline_pixels, caption, HORIZONTAL_ALIGNMENT_LEFT, -1.0, font_size_pixels, Color("#e4eaf0"))
+	PulseGeometry.draw_aim_feedback(_overlay, _pulse_position(pulse, allocation), _drag_mode == "place",
+			pulse.requested_delta_v_meters_per_second(), pulse.direction_angle_degrees(),
+			allocation != null and allocation.starts_with_solid)
 
 
 func _draw_ascent_marker(state: OrbitState, allocation: BurnAllocation, caption: String, font: Font, offset_pixels: Vector2) -> void:
@@ -620,6 +618,7 @@ func _on_add_toggled(is_pressed: bool) -> void:
 
 func _clear_hover() -> void:
 	_has_hover_point = false
+	_hovered_pulse_part = {}
 	_overlay.queue_redraw()
 
 

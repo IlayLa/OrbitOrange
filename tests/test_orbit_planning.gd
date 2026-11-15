@@ -111,6 +111,7 @@ func _check_editing(report: TestReport) -> void:
 		screen.call("_input", release)
 		report.check(screen.get("_drag_snapshot") == null, "releasing the mouse clears the fixed drag ghost")
 		_check_typed_direction(report, screen)
+		_check_launch_angle_field(report, screen)
 		_check_slingshot_placement(report, screen, view, body, state, elements)
 		var number: SpinBox = screen.get("_magnitude_number")
 		number.get_line_edit().grab_focus()
@@ -171,6 +172,21 @@ func _check_typed_direction(report: TestReport, screen: Control) -> void:
 	report.check_close(pulse.requested_delta_v_meters_per_second(), 250.0, 0.000001, "a typed direction keeps the magnitude")
 
 
+## The launch angle field and slider set the plan and follow each other.
+func _check_launch_angle_field(report: TestReport, screen: Control) -> void:
+	var original_angle_radians: float = GameState.plan.launch_angle_radians
+	var field: SpinBox = screen.get("_launch_number")
+	var slider: HSlider = screen.get("_launch_slider")
+	field.value = 42.5
+	report.check_close(GameState.plan.launch_angle_radians, deg_to_rad(42.5), 0.000001, "typing a launch angle sets the plan")
+	report.check_close(slider.value, 42.5, 0.000001, "the launch slider follows the typed angle")
+	slider.value = 30.0
+	report.check_close(field.value, 30.0, 0.000001, "the launch field follows the slider")
+	GameState.plan.launch_angle_radians = original_angle_radians
+	screen.call("_refresh")
+	screen.call("_process", 0.0)
+
+
 ## Press on the path, pull back: the arrow points opposite the pull, as long as the pull.
 func _check_slingshot_placement(report: TestReport, screen: Control, view: OrbitView, body: Dictionary,
 		state: OrbitState, elements: OrbitElements) -> void:
@@ -212,6 +228,17 @@ func _check_slingshot_placement(report: TestReport, screen: Control, view: Orbit
 	screen.call("_input", release)
 	report.check(screen.get("_drag_mode") == "" and GameState.plan.pulses.size() == pulse_count + 1,
 			"releasing the pull keeps the aimed pulse")
+	report.check(screen.get("_selected_pulse_id") == 0 and not (screen.get("_direction_number") as SpinBox).visible,
+			"a finished placement leaves no pulse selected")
+	var press := InputEventMouseButton.new()
+	press.button_index = MOUSE_BUTTON_LEFT
+	press.pressed = true
+	press.position = anchor_pixels
+	screen.call("_on_view_input", press)
+	screen.call("_input", release)
+	report.check(screen.get("_selected_pulse_id") == placed.pulse_id and GameState.plan.pulses.size() == pulse_count + 1,
+			"clicking an existing pulse selects it without adding another")
+	report.check((screen.get("_direction_number") as SpinBox).visible, "selecting a pulse shows its fields")
 	screen.call("_delete_selected")
 	screen.call("_process", 0.0)
 	screen.call("_begin_placement", press_pixels)
