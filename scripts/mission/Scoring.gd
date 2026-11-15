@@ -24,18 +24,18 @@ static func compute_score(mission: Dictionary, science_mission: Dictionary,
 		match condition.get("type", ""):
 			"reserve_delta_v_at_least":
 				succeeded = reserve_meters_per_second >= threshold_meters_per_second
-				requirement = "at least %.2f m/s" % threshold_meters_per_second
+				requirement = "at least " + NumberFormat.meters_per_second(threshold_meters_per_second)
 			"reserve_delta_v_at_most":
 				succeeded = reserve_meters_per_second <= threshold_meters_per_second
-				requirement = "at most %.2f m/s" % threshold_meters_per_second
+				requirement = "at most " + NumberFormat.meters_per_second(threshold_meters_per_second)
 		if not succeeded:
 			failed_count += 1
 			reclaimed_million_usd += float(quest.get("grant_million_usd", 0.0))
 		quest_lines.append(ScoreLine.create("Side quests", quest.get("name", "Quest"),
 				20.0 if succeeded else 0.0, 20.0,
-				"Reserve %.2f m/s %s the requirement of %s; grant %.2f million USD %s." % [
-				reserve_meters_per_second, "meets" if succeeded else "fails", requirement,
-				float(quest.get("grant_million_usd", 0.0)), "retained" if succeeded else "reclaimed"]))
+				"Reserve %s %s the requirement of %s; grant %s %s." % [
+				NumberFormat.meters_per_second(reserve_meters_per_second), "meets" if succeeded else "fails", requirement,
+				NumberFormat.money(float(quest.get("grant_million_usd", 0.0))), "retained" if succeeded else "reclaimed"]))
 	var elements := flight_result.final_elements
 	var has_closed_elements := elements != null and not elements.is_open
 	if has_closed_elements:
@@ -54,13 +54,14 @@ static func compute_score(mission: Dictionary, science_mission: Dictionary,
 		var desired_eccentricity: float = target.get("eccentricity", 0.0)
 		var eccentricity_tolerance: float = target.get("eccentricity_tolerance", 0.0)
 		shape_points = 10.0 * _accuracy_fraction(elements.eccentricity, desired_eccentricity, eccentricity_tolerance)
-		altitude_explanation = "Semi-major-axis altitude %.2f km targets %.2f km with %.2f km tolerance." % [actual_altitude_kilometers, desired_altitude_kilometers, tolerance_kilometers]
-		shape_explanation = "Eccentricity %.4f targets %.4f with %.4f tolerance." % [elements.eccentricity, desired_eccentricity, eccentricity_tolerance]
+		altitude_explanation = "Mean altitude %s targets %s with %s tolerance." % [NumberFormat.kilometers(actual_altitude_kilometers),
+				NumberFormat.kilometers(desired_altitude_kilometers), NumberFormat.kilometers(tolerance_kilometers)]
+		shape_explanation = "Eccentricity %.3f targets %.3f with %.3f tolerance." % [elements.eccentricity, desired_eccentricity, eccentricity_tolerance]
 	var installed_instrument_count := maxi(0, flight_result.installed_instrument_count)
 	var working_instrument_count := clampi(flight_result.working_instrument_count, 0, installed_instrument_count)
 	var health_points := 5.0 if installed_instrument_count == 0 else 5.0 * float(working_instrument_count) / installed_instrument_count
 	report.lines.append(ScoreLine.create("Mission", "Orbit achieved", 20.0 if flight_result.did_reach_orbit else 0.0, 20.0,
-			"The final safe-orbit result is %s after %.1f seconds of flight." % ["achieved" if flight_result.did_reach_orbit else "unachieved", flight_result.flight_duration_seconds]))
+			"The final safe-orbit result is %s after %s of flight." % ["achieved" if flight_result.did_reach_orbit else "unachieved", NumberFormat.duration(flight_result.flight_duration_seconds)]))
 	report.lines.append(ScoreLine.create("Mission", "Altitude accuracy", altitude_points, 15.0, altitude_explanation))
 	report.lines.append(ScoreLine.create("Mission", "Orbit shape", shape_points, 10.0, shape_explanation))
 	report.lines.append(ScoreLine.create("Mission", "Vehicle health", health_points, 5.0,
@@ -68,9 +69,9 @@ static func compute_score(mission: Dictionary, science_mission: Dictionary,
 	var effective_budget_million_usd := budget_million_usd - reclaimed_million_usd
 	var components := _budget_components(cost_million_usd, effective_budget_million_usd)
 	report.lines.append(ScoreLine.create("Budget", "Within budget", components[0], 25.0,
-			"Cost %.2f million USD is compared with %.2f million USD after reclaiming %.2f million USD in failed grants." % [cost_million_usd, effective_budget_million_usd, reclaimed_million_usd]))
+			"Cost %s is compared with a budget of %s after reclaiming %s in failed grants." % [NumberFormat.money(cost_million_usd), NumberFormat.money(effective_budget_million_usd), NumberFormat.money(reclaimed_million_usd)]))
 	report.lines.append(ScoreLine.create("Budget", "Margin", components[1], 5.0,
-			"Unspent budget is %.2f million USD; full margin points require 10%% of the %.2f million USD budget." % [maxf(0.0, effective_budget_million_usd - cost_million_usd), effective_budget_million_usd]))
+			"Unspent budget is %s; full margin points require 10%% of the %s budget." % [NumberFormat.money(maxf(0.0, effective_budget_million_usd - cost_million_usd)), NumberFormat.money(effective_budget_million_usd)]))
 	var best_stars := 0.0
 	if not science_mission.is_empty():
 		for part_id in design.payload_part_ids:
@@ -84,11 +85,11 @@ static func compute_score(mission: Dictionary, science_mission: Dictionary,
 	var coverage_points := 0.0 if science_mission.is_empty() or not has_closed_elements else 8.0 * _completion_fraction(coverage, required_coverage)
 	var data_points := 0.0 if science_mission.is_empty() else 4.0 * _completion_fraction(flight_result.data_delivered_megabits, required_data_megabits)
 	report.lines.append(ScoreLine.create("Science", "Instrument fit", 8.0 * best_stars / 3.0, 8.0,
-			"The best carried science instrument has %.1f of 3 fit stars for %s." % [best_stars, science_mission.get("name", "no selected science mission")]))
+			"The best carried science instrument has %s of 3 fit stars for %s." % [NumberFormat.compact(best_stars), science_mission.get("name", "no selected science mission")]))
 	report.lines.append(ScoreLine.create("Science", "Coverage", coverage_points, 8.0,
-			"Final-orbit coverage is %.2f%% against %.2f%% required." % [100.0 * coverage, 100.0 * required_coverage]))
+			"Final-orbit coverage is %s%% against %s%% required." % [NumberFormat.compact(100.0 * coverage), NumberFormat.compact(100.0 * required_coverage)]))
 	report.lines.append(ScoreLine.create("Science", "Data returned", data_points, 4.0,
-			"Delivered %.2f of %.2f required megabits; generated %.2f megabits." % [flight_result.data_delivered_megabits, required_data_megabits, flight_result.data_generated_megabits]))
+			"Delivered %s of %s required megabits; generated %s megabits." % [NumberFormat.compact(flight_result.data_delivered_megabits), NumberFormat.compact(required_data_megabits), NumberFormat.compact(flight_result.data_generated_megabits)]))
 	report.lines.append_array(quest_lines)
 	if failed_count > 0:
 		# Only penalties through three failures are defined; keep that ceiling.
